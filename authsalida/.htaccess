@@ -1,0 +1,4 @@
+# Permitir descarga directa de PDF (mismo uso que SGI web: authsalida.raei.com.ar)
+<IfModule mod_authz_core.c>
+    Require all granted
+</IfModule>
