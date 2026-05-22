@@ -1,30 +1,24 @@
-<?php
-/**
- * Copiar como rutas_archivos.php y ajustar URLs al publicar.
- *
- * Desarrollo WAMP (IP local):
- *   'url' => 'http://10.30.1.21/avatar',
- *
- * Producción:
- *   'url' => 'https://api.raei.com.ar/avatar',
- */
-declare(strict_types=1);
-
-$GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
-    'avatar_usuario' => [
-        'dir' => '/',
-        'dir_absoluta' => 'C:/ruta/al/vhost/avatar.raei.com.ar',
-        'url' => 'http://avatar.raei.com.ar',
-        'url_respaldo' => ['http://api.raei.com.ar/avatar'],
-    ],
-    'foto_personal' => [
-        'dir' => '/personal/',
-        'url' => 'http://api.raei.com.ar/personal',
-        'url_respaldo' => ['http://personal.raei.com.ar'],
-    ],
-    'auth_salida' => [
-        'dir' => '/authsalida/',
-        'url' => 'http://api.raei.com.ar/authsalida',
-        'url_respaldo' => ['http://authsalida.raei.com.ar'],
-    ],
-];
+<?php
+/**
+ * Copiar como rutas_archivos.php en el servidor api.raei.com.ar.
+ * Ajustar solo si las URLs públicas o rutas en disco difieren en otro entorno.
+ */
+declare(strict_types=1);
+
+$GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
+    'avatar_usuario' => [
+        'dir' => '/avatar/',
+        'url' => 'https://api.raei.com.ar/avatar',
+        'url_respaldo' => ['https://avatar.raei.com.ar'],
+    ],
+    'foto_personal' => [
+        'dir' => '/personal/',
+        'url' => 'https://api.raei.com.ar/personal',
+        'url_respaldo' => ['https://personal.raei.com.ar'],
+    ],
+    'auth_salida' => [
+        'dir' => '/authsalida/',
+        'url' => 'https://api.raei.com.ar/authsalida',
+        'url_respaldo' => ['https://authsalida.raei.com.ar'],
+    ],
+];

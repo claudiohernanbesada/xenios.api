@@ -2,9 +2,8 @@
 
 declare(strict_types=1);
 
-// Avatar opcional (Usuarios.ImgPerfil) — repositorio avatar_usuario en rutas_archivos.php
-// SGI web: POST .../actions/uploadAvatar/upload.php (ruta al repo, sin API REST)
-// App móvil: POST .../sgi-movil/auth/avatar (mismo repo vía esta librería)
+// Avatar opcional (Usuarios.ImgPerfil) — repo avatar_usuario en api.raei.com.ar (/avatar/)
+// SGI web: POST .../actions/uploadAvatar/upload.php · Móvil: POST .../sgi-movil/auth/avatar
 const SGI_AVATAR_REPO = 'avatar_usuario';
 
 require_once dirname(__DIR__, 2) . '/_inc/rutas_archivos.php';
@@ -28,7 +27,7 @@ function delete_personal_foto_file(?string $foto, array $config): void
     delete_archivo_fisico('foto_personal', $foto);
 }
 
-// Carpeta de subida: solo el repositorio configurado (dir_absoluta), nunca el vhost api por defecto
+// Carpeta de subida según rutas_archivos.php (api.raei.com.ar + /avatar/)
 function ensure_upload_directory(string $claveRepositorio): string
 {
     return sgi_asegurar_directorio($claveRepositorio);
