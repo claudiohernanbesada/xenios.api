@@ -12,17 +12,18 @@ declare(strict_types=1);
 
 $GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
     'avatar_usuario' => [
-        'dir' => '/var/www/vhost/apiReg/www/avatar/',
-        'url' => 'http://api.raei.com.ar/avatar',
-        'url_respaldo' => ['http://avatar.raei.com.ar'],
+        'dir' => '/',
+        'dir_absoluta' => 'C:/ruta/al/vhost/avatar.raei.com.ar',
+        'url' => 'http://avatar.raei.com.ar',
+        'url_respaldo' => ['http://api.raei.com.ar/avatar'],
     ],
     'foto_personal' => [
-        'dir' => '/var/www/vhost/apiReg/www/personal/',
+        'dir' => '/personal/',
         'url' => 'http://api.raei.com.ar/personal',
         'url_respaldo' => ['http://personal.raei.com.ar'],
     ],
     'auth_salida' => [
-        'dir' => '/var/www/vhost/apiReg/www/authsalida/',
+        'dir' => '/authsalida/',
         'url' => 'http://api.raei.com.ar/authsalida',
         'url_respaldo' => ['http://authsalida.raei.com.ar'],
     ],

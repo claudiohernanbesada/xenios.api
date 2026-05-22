@@ -4,15 +4,15 @@ declare(strict_types=1);
 
 /** @var array<string, array{dir: string, dir_absoluta?: string, url: string, url_respaldo?: list<string>}> */
 $GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
-    // Avatares opcionales de Usuarios.ImgPerfil (SGI web: uploadAvatar/upload.php; móvil: POST /sgi-movil/auth/avatar)
+    // Avatares Usuarios.ImgPerfil — repo propio avatar.raei.com.ar (NO carpeta /avatar/ del vhost api)
     'avatar_usuario' => [
-        'dir' => '/avatar/',
-        // Ruta absoluta en el servidor (prioritaria). Misma carpeta que usa el SGI web al subir perfil.
-        'dir_absoluta' => 'C:/wamp64/www/api.raei.com.ar/avatar',
-        'url' => 'http://api.raei.com.ar/avatar',
+        'dir' => '/',
+        // Obligatorio: carpeta del vhost/servidor de avatares (misma que URL_PERFIL_USER del SGI web)
+        'dir_absoluta' => 'C:/wamp64/www/avatar.raei.com.ar',
+        'url' => 'http://avatar.raei.com.ar.local',
         'url_respaldo' => [
-            'http://avatar.raei.com.ar.local',
             'http://avatar.raei.com.ar',
+            'http://api.raei.com.ar/avatar',
             'http://api.raei.com.ar.local/avatar',
         ],
     ],
@@ -97,7 +97,35 @@ function sgi_url_archivo(string $clave, string $nombreArchivo): string
     return sgi_ruta_url($clave) . '/' . rawurlencode(basename($nombreArchivo));
 }
 
-// Rutas en disco donde buscar un repo (DOCUMENT_ROOT y sitio api.raei.com.ar en WAMP)
+// Carpeta donde SUBIR archivos (solo dir_absoluta o sitio api + dir; avatar exige dir_absoluta)
+function sgi_ruta_fisica_escritura(string $clave): string
+{
+    $rutas = sgi_rutas_archivos();
+    if (!isset($rutas[$clave]['dir'])) {
+        throw new InvalidArgumentException("Repositorio de archivos desconocido: {$clave}");
+    }
+
+    $abs = $rutas[$clave]['dir_absoluta'] ?? null;
+    if (is_string($abs) && trim($abs) !== '') {
+        return rtrim(trim($abs), '/\\');
+    }
+
+    if ($clave === 'avatar_usuario') {
+        throw new RuntimeException(
+            'avatar_usuario: configure dir_absoluta en rutas_archivos.php (repositorio avatar.raei.com.ar, no el vhost api).'
+        );
+    }
+
+    $rel = ltrim((string) $rutas[$clave]['dir'], '/\\');
+    $apiSiteRoot = dirname(__DIR__);
+    if ($rel !== '' && $rel !== '/') {
+        return $apiSiteRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $rel);
+    }
+
+    return rtrim($apiSiteRoot, '/\\');
+}
+
+// Rutas en disco donde LEER un archivo (repo configurado + ubicaciones legacy)
 function sgi_rutas_fisicas_candidatas(string $clave): array
 {
     $rutas = sgi_rutas_archivos();
@@ -112,12 +140,18 @@ function sgi_rutas_fisicas_candidatas(string $clave): array
         $candidatas[] = rtrim(trim($abs), '/\\');
     }
 
-    $candidatas[] = sgi_ruta_fisica($clave);
-
-    // WAMP: carpeta bajo el sitio api.raei.com.ar si DOCUMENT_ROOT es C:\wamp64\www
     $apiSiteRoot = dirname(__DIR__);
-    if ($rel !== '') {
+    if ($clave === 'avatar_usuario') {
+        // Archivos subidos por error al vhost api (migración / lectura)
+        $candidatas[] = $apiSiteRoot . DIRECTORY_SEPARATOR . 'avatar';
+    } elseif ($rel !== '' && $rel !== '/') {
         $candidatas[] = $apiSiteRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $rel);
+        $candidatas[] = sgi_ruta_fisica($clave);
+    } else {
+        $candidatas[] = sgi_ruta_fisica($clave);
+        if ($rel !== '') {
+            $candidatas[] = $apiSiteRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $rel);
+        }
     }
 
     return array_values(array_unique($candidatas));
@@ -139,16 +173,11 @@ function sgi_path_archivo_local(string $clave, string $nombreArchivo): ?string
     return null;
 }
 
-// Devuelve la carpeta del repo si ya existe (la crea el backend al subir archivos)
+// Devuelve la carpeta del repo para escritura (debe existir o crearse al subir)
 function sgi_asegurar_directorio(string $clave): string
 {
-    foreach (sgi_rutas_fisicas_candidatas($clave) as $dir) {
-        if (is_dir($dir)) {
-            return rtrim($dir, '/\\') . DIRECTORY_SEPARATOR;
-        }
-    }
-    $dir = sgi_ruta_fisica($clave);
-    if (!is_dir($dir)) {
+    $dir = sgi_ruta_fisica_escritura($clave);
+    if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
         throw new RuntimeException("El directorio del repositorio no existe: {$dir}");
     }
     return rtrim($dir, '/\\') . DIRECTORY_SEPARATOR;

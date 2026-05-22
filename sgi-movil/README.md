@@ -32,7 +32,7 @@ Subida desde SGI web (mismos repos que `rutas_archivos.php`):
 | Foto legajo (`Personal.Foto`) | `/actions/uploadImgPersonal/upload.php` | `foto_personal` |
 | PDF autorización | `/actions/uploadAuthSalida/upload.php` | `auth_salida` |
 
-La **app móvil** no llama a esos scripts: usa `POST/DELETE /sgi-movil/auth/avatar`, que escribe en el **mismo** directorio `avatar_usuario` (prioridad `dir_absoluta` en `rutas_archivos.php`).
+La **app móvil** usa `POST/DELETE /sgi-movil/auth/avatar` (no sube al vhost api): el endpoint guarda en `dir_absoluta` de `avatar_usuario` (ej. `C:\wamp64\www\avatar.raei.com.ar`, vhost `avatar.raei.com.ar.local`). La carpeta `api.raei.com.ar/avatar/` queda solo como lectura legacy.
 
 ## Credenciales MySQL
 

@@ -28,22 +28,10 @@ function delete_personal_foto_file(?string $foto, array $config): void
     delete_archivo_fisico('foto_personal', $foto);
 }
 
-// Carpeta de subida: usa la existente o la crea (solo al subir, como uploadAuthSalida)
+// Carpeta de subida: solo el repositorio configurado (dir_absoluta), nunca el vhost api por defecto
 function ensure_upload_directory(string $claveRepositorio): string
 {
-    foreach (sgi_rutas_fisicas_candidatas($claveRepositorio) as $dir) {
-        if (is_dir($dir)) {
-            return rtrim($dir, '/\\') . DIRECTORY_SEPARATOR;
-        }
-    }
-
-    $candidatas = sgi_rutas_fisicas_candidatas($claveRepositorio);
-    $target = $candidatas[count($candidatas) - 1] ?? sgi_ruta_fisica($claveRepositorio);
-    if (!is_dir($target) && !@mkdir($target, 0755, true) && !is_dir($target)) {
-        throw new RuntimeException('No se pudo preparar la carpeta del repositorio: ' . $target);
-    }
-
-    return rtrim($target, '/\\') . DIRECTORY_SEPARATOR;
+    return sgi_asegurar_directorio($claveRepositorio);
 }
 
 // Guarda JPG/PNG con nombre aleatorio en el repo indicado
