@@ -1,4 +1,11 @@
-# Permitir descarga directa de PDF (mismo uso que SGI web: authsalida.raei.com.ar)
+# Enruta /authsalida/{archivo} a index.php (rutas en _inc/rutas_archivos.php)
 <IfModule mod_authz_core.c>
     Require all granted
+</IfModule>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /authsalida/
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^(.+)$ index.php?f=$1 [L,QSA]
 </IfModule>

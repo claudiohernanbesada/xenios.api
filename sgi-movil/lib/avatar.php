@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 // Subida, borrado y URLs de avatares/fotos de perfil
 require_once dirname(__DIR__, 2) . '/_inc/rutas_archivos.php';
+require_once dirname(__DIR__, 2) . '/_inc/stream_archivo.php';
 
 // Borra el archivo viejo del disco si no es el placeholder no-image.png
 function delete_archivo_fisico(string $claveRepositorio, ?string $nombreArchivo): void
@@ -80,4 +81,29 @@ function resolve_avatar_url(?array $personal, array $user, array $config): ?stri
     }
 
     return null;
+}
+
+// Imagen de un repositorio (dir + url_respaldo de rutas_archivos.php)
+function stream_repositorio_imagen(string $claveRepositorio, string $fileName): bool
+{
+    return sgi_stream_archivo($claveRepositorio, $fileName, [
+        'disposition' => 'inline',
+        'validar' => 'sgi_archivo_es_imagen',
+    ]);
+}
+
+// Avatar del usuario logueado (Personal.Foto o Usuarios.ImgPerfil)
+function stream_avatar_for_user(?array $personal, array $user): bool
+{
+    $foto = $personal['Foto'] ?? null;
+    if (is_string($foto) && $foto !== '' && $foto !== 'no-image.png') {
+        return stream_repositorio_imagen('foto_personal', $foto);
+    }
+
+    $img = $user['ImgPerfil'] ?? null;
+    if (is_string($img) && $img !== '' && $img !== 'no-image.png') {
+        return stream_repositorio_imagen('avatar_usuario', $img);
+    }
+
+    return false;
 }

@@ -39,6 +39,7 @@ try {
         $method === 'POST' && $path === '/auth/cambiar-clave' => handle_cambiar_clave($pdo, $config),
         $method === 'POST' && $path === '/auth/avatar' => handle_avatar_upload($pdo, $config),
         $method === 'DELETE' && $path === '/auth/avatar' => handle_avatar_delete($pdo, $config),
+        $method === 'GET' && $path === '/auth/avatar/imagen' => handle_avatar_imagen($pdo, $config),
         $method === 'GET' && $path === '/fichadas' => handle_fichadas($pdo, $config),
         $method === 'GET' && $path === '/autorizaciones-salida' => handle_autorizaciones($pdo, $config),
         default => handle_autorizacion_archivo($pdo, $config, $path, $method),
@@ -187,6 +188,20 @@ function handle_avatar_upload(PDO $pdo, array $config): void
             $config
         ),
     ], 200, $config);
+}
+
+// GET /auth/avatar/imagen — foto de perfil con token (para la app móvil)
+function handle_avatar_imagen(PDO $pdo, array $config): void
+{
+    $auth = require_auth($pdo, $config);
+    $personal = fetch_personal_by_mail($pdo, (string) $auth['user']['Mail']);
+
+    apply_cors($config);
+    if (stream_avatar_for_user($personal, $auth['user'])) {
+        exit;
+    }
+
+    json_response(['message' => 'Sin foto de perfil'], 404, $config);
 }
 
 // DELETE /auth/avatar — vuelve al placeholder o NULL según tabla

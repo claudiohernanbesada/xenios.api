@@ -6,7 +6,7 @@ declare(strict_types=1);
 $GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
     // Avatares sueltos de Usuarios.ImgPerfil
     'avatar_usuario' => [
-        'dir' => '/var/www/vhost/apiReg/www/avatar/',
+        'dir' => '/avatar/',
         'url' => 'http://api.raei.com.ar/avatar',
         'url_respaldo' => [
             'http://avatar.raei.com.ar',
@@ -14,7 +14,7 @@ $GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
     ],
     // Fotos de legajo en Personal.Foto
     'foto_personal' => [
-        'dir' => '/var/www/vhost/apiReg/www/personal/',
+        'dir' => '/personal/',
         'url' => 'http://api.raei.com.ar/personal',
         'url_respaldo' => [
             'http://personal.raei.com.ar',
@@ -22,10 +22,12 @@ $GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
     ],
     // Adjuntos de AuthSalida.AuthFile
     'auth_salida' => [
-        'dir' => '/var/www/vhost/apiReg/www/authsalida/',
+        'dir' => '/authsalida/',
         'url' => 'http://api.raei.com.ar/authsalida',
         'url_respaldo' => [
+            'http://authsalida.raei.com.ar.local',
             'http://authsalida.raei.com.ar',
+            'http://api.raei.com.ar.local/authsalida',
         ],
     ],
 ];
@@ -89,6 +91,25 @@ function sgi_url_archivo(string $clave, string $nombreArchivo): string
     return sgi_ruta_url($clave) . '/' . rawurlencode(basename($nombreArchivo));
 }
 
+// Rutas en disco donde buscar un repo (DOCUMENT_ROOT y sitio api.raei.com.ar en WAMP)
+function sgi_rutas_fisicas_candidatas(string $clave): array
+{
+    $rutas = sgi_rutas_archivos();
+    if (!isset($rutas[$clave]['dir'])) {
+        return [];
+    }
+    $rel = ltrim((string) $rutas[$clave]['dir'], '/\\');
+    $candidatas = [sgi_ruta_fisica($clave)];
+
+    // WAMP: los PDF suelen estar en .../api.raei.com.ar/authsalida aunque DOCUMENT_ROOT sea C:\wamp64\www
+    $apiSiteRoot = dirname(__DIR__);
+    if ($rel !== '') {
+        $candidatas[] = $apiSiteRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $rel);
+    }
+
+    return array_values(array_unique($candidatas));
+}
+
 // Path completo en disco si el archivo existe localmente; si no, null
 function sgi_path_archivo_local(string $clave, string $nombreArchivo): ?string
 {
@@ -96,16 +117,26 @@ function sgi_path_archivo_local(string $clave, string $nombreArchivo): ?string
     if ($name === '') {
         return null;
     }
-    $path = sgi_ruta_fisica($clave) . $name;
-    return is_file($path) ? $path : null;
+    foreach (sgi_rutas_fisicas_candidatas($clave) as $dir) {
+        $path = rtrim($dir, '/\\') . DIRECTORY_SEPARATOR . $name;
+        if (is_file($path)) {
+            return $path;
+        }
+    }
+    return null;
 }
 
-// Crea la carpeta del repo si todavía no existe
+// Devuelve la carpeta del repo si ya existe (la crea el backend al subir archivos)
 function sgi_asegurar_directorio(string $clave): string
 {
-    $dir = sgi_ruta_fisica($clave);
-    if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
-        throw new RuntimeException("No se pudo crear el directorio: {$dir}");
+    foreach (sgi_rutas_fisicas_candidatas($clave) as $dir) {
+        if (is_dir($dir)) {
+            return rtrim($dir, '/\\') . DIRECTORY_SEPARATOR;
+        }
     }
-    return $dir;
+    $dir = sgi_ruta_fisica($clave);
+    if (!is_dir($dir)) {
+        throw new RuntimeException("El directorio del repositorio no existe: {$dir}");
+    }
+    return rtrim($dir, '/\\') . DIRECTORY_SEPARATOR;
 }
