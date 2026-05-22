@@ -2,11 +2,13 @@
 // Mapa de carpetas en disco y URLs públicas para avatares, fotos y PDFs de salida
 declare(strict_types=1);
 
-/** @var array<string, array{dir: string, url: string, url_respaldo?: list<string>}> */
+/** @var array<string, array{dir: string, dir_absoluta?: string, url: string, url_respaldo?: list<string>}> */
 $GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
-    // Avatares sueltos de Usuarios.ImgPerfil
+    // Avatares opcionales de Usuarios.ImgPerfil (SGI web: uploadAvatar/upload.php; móvil: POST /sgi-movil/auth/avatar)
     'avatar_usuario' => [
         'dir' => '/avatar/',
+        // Ruta absoluta en el servidor (prioritaria). Misma carpeta que usa el SGI web al subir perfil.
+        'dir_absoluta' => 'C:/wamp64/www/api.raei.com.ar/avatar',
         'url' => 'http://api.raei.com.ar/avatar',
         'url_respaldo' => [
             'http://avatar.raei.com.ar.local',
@@ -103,9 +105,16 @@ function sgi_rutas_fisicas_candidatas(string $clave): array
         return [];
     }
     $rel = ltrim((string) $rutas[$clave]['dir'], '/\\');
-    $candidatas = [sgi_ruta_fisica($clave)];
+    $candidatas = [];
 
-    // WAMP: los PDF suelen estar en .../api.raei.com.ar/authsalida aunque DOCUMENT_ROOT sea C:\wamp64\www
+    $abs = $rutas[$clave]['dir_absoluta'] ?? null;
+    if (is_string($abs) && trim($abs) !== '') {
+        $candidatas[] = rtrim(trim($abs), '/\\');
+    }
+
+    $candidatas[] = sgi_ruta_fisica($clave);
+
+    // WAMP: carpeta bajo el sitio api.raei.com.ar si DOCUMENT_ROOT es C:\wamp64\www
     $apiSiteRoot = dirname(__DIR__);
     if ($rel !== '') {
         $candidatas[] = $apiSiteRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $rel);

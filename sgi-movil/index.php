@@ -153,7 +153,7 @@ function handle_avatar_upload(PDO $pdo, array $config): void
     $personal = fetch_personal_by_mail($pdo, (string) $auth['user']['Mail']);
 
     try {
-        $fileName = save_uploaded_foto($_FILES['archivo'], 'avatar_usuario');
+        $fileName = save_uploaded_foto($_FILES['archivo'], SGI_AVATAR_REPO);
     } catch (Throwable $e) {
         json_response(['message' => $e->getMessage()], 500, $config);
         return;
@@ -176,7 +176,7 @@ function handle_avatar_upload(PDO $pdo, array $config): void
         return;
     }
 
-    delete_archivo_fisico('avatar_usuario', $auth['user']['ImgPerfil'] ?? null);
+    delete_archivo_fisico(SGI_AVATAR_REPO, $auth['user']['ImgPerfil'] ?? null);
     $stmt = $pdo->prepare(
         'UPDATE Usuarios SET ImgPerfil = :img, dateUpdate = NOW() WHERE Id = :id'
     );
@@ -215,7 +215,7 @@ function handle_avatar_delete(PDO $pdo, array $config): void
     $auth = require_auth($pdo, $config);
     $personal = fetch_personal_by_mail($pdo, (string) $auth['user']['Mail']);
 
-    delete_archivo_fisico('avatar_usuario', $auth['user']['ImgPerfil'] ?? null);
+    delete_archivo_fisico(SGI_AVATAR_REPO, $auth['user']['ImgPerfil'] ?? null);
     $stmt = $pdo->prepare(
         'UPDATE Usuarios SET ImgPerfil = NULL, dateUpdate = NOW() WHERE Id = :id'
     );

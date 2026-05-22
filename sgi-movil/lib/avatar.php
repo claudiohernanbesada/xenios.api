@@ -2,7 +2,11 @@
 
 declare(strict_types=1);
 
-// Subida, borrado y URLs de avatares/fotos de perfil
+// Avatar opcional (Usuarios.ImgPerfil) — repositorio avatar_usuario en rutas_archivos.php
+// SGI web: POST .../actions/uploadAvatar/upload.php (ruta al repo, sin API REST)
+// App móvil: POST .../sgi-movil/auth/avatar (mismo repo vía esta librería)
+const SGI_AVATAR_REPO = 'avatar_usuario';
+
 require_once dirname(__DIR__, 2) . '/_inc/rutas_archivos.php';
 require_once dirname(__DIR__, 2) . '/_inc/stream_archivo.php';
 
@@ -90,7 +94,7 @@ function resolve_avatar_url(array $user, array $config): ?string
 {
     $img = $user['ImgPerfil'] ?? null;
     if (is_string($img) && $img !== '' && $img !== 'no-image.png') {
-        return resolve_url_archivo_publico('avatar_usuario', $img);
+        return resolve_url_archivo_publico(SGI_AVATAR_REPO, $img);
     }
 
     return null;
@@ -109,7 +113,7 @@ function stream_avatar_for_user(array $user): bool
 {
     $img = $user['ImgPerfil'] ?? null;
     if (is_string($img) && $img !== '' && $img !== 'no-image.png') {
-        return stream_repositorio_imagen('avatar_usuario', $img);
+        return stream_repositorio_imagen(SGI_AVATAR_REPO, $img);
     }
 
     return false;
