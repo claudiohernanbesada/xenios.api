@@ -6,7 +6,7 @@ declare(strict_types=1);
 $GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
     // Avatares sueltos de Usuarios.ImgPerfil
     'avatar_usuario' => [
-        'dir' => '/avatar/',
+        'dir' => '/var/www/vhost/apiReg/www/avatar/',
         'url' => 'http://api.raei.com.ar/avatar',
         'url_respaldo' => [
             'http://avatar.raei.com.ar',
@@ -14,7 +14,7 @@ $GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
     ],
     // Fotos de legajo en Personal.Foto
     'foto_personal' => [
-        'dir' => '/personal/',
+        'dir' => '/var/www/vhost/apiReg/www/personal/',
         'url' => 'http://api.raei.com.ar/personal',
         'url_respaldo' => [
             'http://personal.raei.com.ar',
@@ -22,7 +22,7 @@ $GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
     ],
     // Adjuntos de AuthSalida.AuthFile
     'auth_salida' => [
-        'dir' => '/authsalida/',
+        'dir' => '/var/www/vhost/apiReg/www/authsalida/',
         'url' => 'http://api.raei.com.ar/authsalida',
         'url_respaldo' => [
             'http://authsalida.raei.com.ar',
