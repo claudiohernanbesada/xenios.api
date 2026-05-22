@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+// Descarga y cache local de PDFs de autorización de salida
 require_once dirname(__DIR__, 2) . '/_inc/rutas_archivos.php';
 
 // Clave del repo donde viven los PDFs de autorización de salida

@@ -21,6 +21,8 @@ return [
     'jwt_ttl_seconds' => 60 * 60 * 24 * 7,
     // Carpetas y URLs de avatares, fotos de personal, PDFs de salida, etc.
     'archivos' => sgi_rutas_archivos(),
+    // Prefijo de URL donde cuelga esta API bajo Apache
     'api_base_path' => '/sgi-movil',
+    // Origen permitido en CORS (* en dev, restringir en prod)
     'cors_origin' => '*',
 ];

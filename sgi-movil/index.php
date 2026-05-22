@@ -18,6 +18,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
     exit;
 }
 
+// Si MySQL no responde, cortamos acá con 500
 try {
     $pdo = db_connect($config);
 } catch (Throwable $e) {
@@ -25,6 +26,7 @@ try {
     exit;
 }
 
+// Path limpio y método HTTP del request entrante
 $path = current_api_path($config);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
@@ -41,6 +43,7 @@ try {
         $method === 'GET' && $path === '/autorizaciones-salida' => handle_autorizaciones($pdo, $config),
         default => handle_autorizacion_archivo($pdo, $config, $path, $method),
     };
+// Cualquier excepción sin atrapar en un handler → 500 genérico
 } catch (Throwable $e) {
     json_response(['message' => 'Error interno del servidor'], 500, $config);
 }
@@ -158,6 +161,7 @@ function handle_avatar_upload(PDO $pdo, array $config): void
     }
 
     if ($personal !== null) {
+        // Tiene ficha en Personal → guardamos en foto_personal
         delete_archivo_fisico('foto_personal', $personal['Foto'] ?? null);
         $stmt = $pdo->prepare(
             'UPDATE Personal SET Foto = :foto, DateUpdate = NOW() WHERE Id = :id'
@@ -165,6 +169,7 @@ function handle_avatar_upload(PDO $pdo, array $config): void
         $stmt->execute(['foto' => $fileName, 'id' => $personal['Id']]);
         $personal['Foto'] = $fileName;
     } else {
+        // Sin Personal → avatar suelto en Usuarios.ImgPerfil
         delete_archivo_fisico('avatar_usuario', $auth['user']['ImgPerfil'] ?? null);
         $stmt = $pdo->prepare(
             'UPDATE Usuarios SET ImgPerfil = :img, dateUpdate = NOW() WHERE Id = :id'
@@ -236,6 +241,7 @@ function handle_fichadas(PDO $pdo, array $config): void
     }
 
     $legajo = (int) $personal['Legajo'];
+    // En FichadasGlobal el legajo puede estar con o sin ceros adelante
     $claves = normalizar_legajo_claves($legajo);
     $placeholders = implode(',', array_fill(0, count($claves), '?'));
 
@@ -290,6 +296,7 @@ function handle_autorizaciones(PDO $pdo, array $config): void
     $rows = $stmt->fetchAll();
 
     $autorizaciones = array_map(static function (array $row): array {
+        // Fecha a dd/mm/yyyy y flags de archivo adjunto para la app
         $fechaRaw = (string) $row['Fecha'];
         $fechaFmt = $fechaRaw;
         $parsed = DateTimeImmutable::createFromFormat('Y-m-d', $fechaRaw);

@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 
+// Auth: JWT casero, roles, permisos y middleware require_auth
 require_once __DIR__ . '/response.php';
 
 // Hashea la clave igual que el SGI web (SHA-256 plano)

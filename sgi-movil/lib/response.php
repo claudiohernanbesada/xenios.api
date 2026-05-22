@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 
+// Helpers de respuesta HTTP: CORS + JSON
 // Headers CORS para que la app Expo/React Native pueda pegarle desde el browser
 function apply_cors(array $config): void
 {

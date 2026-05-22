@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+// Subida, borrado y URLs de avatares/fotos de perfil
 require_once dirname(__DIR__, 2) . '/_inc/rutas_archivos.php';
 
 // Borra el archivo viejo del disco si no es el placeholder no-image.png

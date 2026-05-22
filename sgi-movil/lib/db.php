@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 
+// Capa mínima de acceso a MySQL vía PDO
 // Conecta a MySQL y deja PDO listo para usar en los handlers
 function db_connect(array $config): PDO
 {
