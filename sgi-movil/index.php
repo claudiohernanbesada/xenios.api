@@ -201,7 +201,9 @@ function handle_avatar_imagen(PDO $pdo, array $config): void
         exit;
     }
 
-    json_response(['message' => 'Sin foto de perfil'], 404, $config);
+    http_response_code(404);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['message' => 'Sin foto de perfil'], JSON_UNESCAPED_UNICODE);
 }
 
 // DELETE /auth/avatar — vuelve al placeholder o NULL según tabla

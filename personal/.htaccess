@@ -1,4 +1,9 @@
-# Permitir acceso a fotos de personal (JPG/PNG)
-<IfModule mod_headers.c>
-  Header set Access-Control-Allow-Origin "*"
+<IfModule mod_authz_core.c>
+    Require all granted
+</IfModule>
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /personal/
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^(.+)$ index.php?f=$1 [L,QSA]
 </IfModule>

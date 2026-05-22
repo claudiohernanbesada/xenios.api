@@ -9,7 +9,9 @@ $GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
         'dir' => '/avatar/',
         'url' => 'http://api.raei.com.ar/avatar',
         'url_respaldo' => [
+            'http://avatar.raei.com.ar.local',
             'http://avatar.raei.com.ar',
+            'http://api.raei.com.ar.local/avatar',
         ],
     ],
     // Fotos de legajo en Personal.Foto
@@ -17,7 +19,9 @@ $GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
         'dir' => '/personal/',
         'url' => 'http://api.raei.com.ar/personal',
         'url_respaldo' => [
+            'http://personal.raei.com.ar.local',
             'http://personal.raei.com.ar',
+            'http://api.raei.com.ar.local/personal',
         ],
     ],
     // Adjuntos de AuthSalida.AuthFile
