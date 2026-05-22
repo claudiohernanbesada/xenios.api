@@ -153,10 +153,26 @@ function handle_avatar_upload(PDO $pdo, array $config): void
     $personal = fetch_personal_by_mail($pdo, (string) $auth['user']['Mail']);
     $repoClave = $personal !== null ? 'foto_personal' : 'avatar_usuario';
 
-    $fileName = save_uploaded_foto($_FILES['archivo'], $repoClave);
+    try {
+        $fileName = save_uploaded_foto($_FILES['archivo'], $repoClave);
+    } catch (Throwable $e) {
+        json_response(['message' => $e->getMessage()], 500, $config);
+        return;
+    }
+
     if ($fileName === null) {
+        $size = (int) ($_FILES['archivo']['size'] ?? 0);
+        $err = (int) ($_FILES['archivo']['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($err !== UPLOAD_ERR_OK) {
+            json_response(['message' => 'No se recibió el archivo correctamente (error ' . $err . ').'], 400, $config);
+            return;
+        }
+        if ($size > 512 * 1024) {
+            json_response(['message' => 'La imagen es demasiado grande (máximo 512 KB).'], 400, $config);
+            return;
+        }
         json_response([
-            'message' => 'Imagen inválida. Use JPG o PNG de hasta 100 KB.',
+            'message' => 'Imagen inválida. Use JPG o PNG.',
         ], 400, $config);
         return;
     }

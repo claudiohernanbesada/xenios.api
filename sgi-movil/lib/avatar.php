@@ -24,17 +24,35 @@ function delete_personal_foto_file(?string $foto, array $config): void
     delete_archivo_fisico('foto_personal', $foto);
 }
 
-// Guarda JPG/PNG de hasta 100 KB con nombre aleatorio en el repo indicado
+// Carpeta de subida: usa la existente o la crea (solo al subir, como uploadAuthSalida)
+function ensure_upload_directory(string $claveRepositorio): string
+{
+    foreach (sgi_rutas_fisicas_candidatas($claveRepositorio) as $dir) {
+        if (is_dir($dir)) {
+            return rtrim($dir, '/\\') . DIRECTORY_SEPARATOR;
+        }
+    }
+
+    $candidatas = sgi_rutas_fisicas_candidatas($claveRepositorio);
+    $target = $candidatas[count($candidatas) - 1] ?? sgi_ruta_fisica($claveRepositorio);
+    if (!is_dir($target) && !@mkdir($target, 0755, true) && !is_dir($target)) {
+        throw new RuntimeException('No se pudo preparar la carpeta del repositorio: ' . $target);
+    }
+
+    return rtrim($target, '/\\') . DIRECTORY_SEPARATOR;
+}
+
+// Guarda JPG/PNG con nombre aleatorio en el repo indicado
 function save_uploaded_foto(array $file, string $claveRepositorio): ?string
 {
-    if ($file['error'] !== UPLOAD_ERR_OK) {
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
         return null;
     }
-    if ($file['size'] > 100 * 1024) {
+    if (($file['size'] ?? 0) > 512 * 1024) {
         return null;
     }
 
-    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    $ext = strtolower(pathinfo((string) ($file['name'] ?? ''), PATHINFO_EXTENSION));
     if (!in_array($ext, ['jpg', 'jpeg', 'png'], true)) {
         return null;
     }
@@ -42,7 +60,7 @@ function save_uploaded_foto(array $file, string $claveRepositorio): ?string
     $extension = $ext === 'jpeg' ? '.jpg' : '.' . $ext;
     $fileName = bin2hex(random_bytes(16)) . $extension;
 
-    $dir = sgi_asegurar_directorio($claveRepositorio);
+    $dir = ensure_upload_directory($claveRepositorio);
     $destino = $dir . $fileName;
     if (!move_uploaded_file($file['tmp_name'], $destino)) {
         return null;
@@ -88,7 +106,6 @@ function stream_repositorio_imagen(string $claveRepositorio, string $fileName): 
 {
     return sgi_stream_archivo($claveRepositorio, $fileName, [
         'disposition' => 'inline',
-        'validar' => 'sgi_archivo_es_imagen',
     ]);
 }
 
