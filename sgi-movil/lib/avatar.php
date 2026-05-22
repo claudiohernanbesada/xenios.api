@@ -85,14 +85,9 @@ function resolve_url_archivo_publico(string $claveRepositorio, string $fileName)
     return sgi_url_archivo($claveRepositorio, $name);
 }
 
-// Prioriza foto de Personal; si no hay, ImgPerfil del Usuario
-function resolve_avatar_url(?array $personal, array $user, array $config): ?string
+// Avatar de la app móvil: solo Usuarios.ImgPerfil (no Personal.Foto de legajo)
+function resolve_avatar_url(array $user, array $config): ?string
 {
-    $foto = $personal['Foto'] ?? null;
-    if (is_string($foto) && $foto !== '' && $foto !== 'no-image.png') {
-        return resolve_url_archivo_publico('foto_personal', $foto);
-    }
-
     $img = $user['ImgPerfil'] ?? null;
     if (is_string($img) && $img !== '' && $img !== 'no-image.png') {
         return resolve_url_archivo_publico('avatar_usuario', $img);
@@ -109,14 +104,9 @@ function stream_repositorio_imagen(string $claveRepositorio, string $fileName): 
     ]);
 }
 
-// Avatar del usuario logueado (Personal.Foto o Usuarios.ImgPerfil)
-function stream_avatar_for_user(?array $personal, array $user): bool
+// Imagen de avatar opcional del usuario (Usuarios.ImgPerfil → repo avatar_usuario)
+function stream_avatar_for_user(array $user): bool
 {
-    $foto = $personal['Foto'] ?? null;
-    if (is_string($foto) && $foto !== '' && $foto !== 'no-image.png') {
-        return stream_repositorio_imagen('foto_personal', $foto);
-    }
-
     $img = $user['ImgPerfil'] ?? null;
     if (is_string($img) && $img !== '' && $img !== 'no-image.png') {
         return stream_repositorio_imagen('avatar_usuario', $img);

@@ -234,8 +234,7 @@ function fetch_personal_by_mail(PDO $pdo, string $mail): ?array
 function build_usuario_response(array $user, array $roles, ?array $personal, array $config): array
 {
     require_once __DIR__ . '/avatar.php';
-    $avatarUrl = resolve_avatar_url($personal, $user, $config);
-    $fotoPersonal = $personal['Foto'] ?? null;
+    $avatarUrl = resolve_avatar_url($user, $config);
 
     return [
         'id' => $user['Id'],
@@ -243,7 +242,7 @@ function build_usuario_response(array $user, array $roles, ?array $personal, arr
         'apellido' => $user['Apellido'],
         'mail' => $user['Mail'],
         'roles' => $roles,
-        'imgPerfil' => is_string($fotoPersonal) && $fotoPersonal !== '' ? $fotoPersonal : ($user['ImgPerfil'] ?? null),
+        'imgPerfil' => $user['ImgPerfil'] ?? null,
         'avatarUrl' => $avatarUrl,
         'personalId' => $personal['Id'] ?? null,
         'legajo' => isset($personal['Legajo']) ? (int) $personal['Legajo'] : null,

@@ -140,7 +140,7 @@ function handle_cambiar_clave(PDO $pdo, array $config): void
     json_response(['ok' => true], 200, $config);
 }
 
-// POST /auth/avatar — sube foto a Personal o Usuario según corresponda
+// POST /auth/avatar — avatar opcional del usuario (Usuarios.ImgPerfil, repo /avatar/)
 function handle_avatar_upload(PDO $pdo, array $config): void
 {
     $auth = require_auth($pdo, $config);
@@ -151,10 +151,9 @@ function handle_avatar_upload(PDO $pdo, array $config): void
     }
 
     $personal = fetch_personal_by_mail($pdo, (string) $auth['user']['Mail']);
-    $repoClave = $personal !== null ? 'foto_personal' : 'avatar_usuario';
 
     try {
-        $fileName = save_uploaded_foto($_FILES['archivo'], $repoClave);
+        $fileName = save_uploaded_foto($_FILES['archivo'], 'avatar_usuario');
     } catch (Throwable $e) {
         json_response(['message' => $e->getMessage()], 500, $config);
         return;
@@ -177,23 +176,12 @@ function handle_avatar_upload(PDO $pdo, array $config): void
         return;
     }
 
-    if ($personal !== null) {
-        // Tiene ficha en Personal → guardamos en foto_personal
-        delete_archivo_fisico('foto_personal', $personal['Foto'] ?? null);
-        $stmt = $pdo->prepare(
-            'UPDATE Personal SET Foto = :foto, DateUpdate = NOW() WHERE Id = :id'
-        );
-        $stmt->execute(['foto' => $fileName, 'id' => $personal['Id']]);
-        $personal['Foto'] = $fileName;
-    } else {
-        // Sin Personal → avatar suelto en Usuarios.ImgPerfil
-        delete_archivo_fisico('avatar_usuario', $auth['user']['ImgPerfil'] ?? null);
-        $stmt = $pdo->prepare(
-            'UPDATE Usuarios SET ImgPerfil = :img, dateUpdate = NOW() WHERE Id = :id'
-        );
-        $stmt->execute(['img' => $fileName, 'id' => $auth['user']['Id']]);
-        $auth['user']['ImgPerfil'] = $fileName;
-    }
+    delete_archivo_fisico('avatar_usuario', $auth['user']['ImgPerfil'] ?? null);
+    $stmt = $pdo->prepare(
+        'UPDATE Usuarios SET ImgPerfil = :img, dateUpdate = NOW() WHERE Id = :id'
+    );
+    $stmt->execute(['img' => $fileName, 'id' => $auth['user']['Id']]);
+    $auth['user']['ImgPerfil'] = $fileName;
 
     json_response([
         'ok' => true,
@@ -206,43 +194,33 @@ function handle_avatar_upload(PDO $pdo, array $config): void
     ], 200, $config);
 }
 
-// GET /auth/avatar/imagen — foto de perfil con token (para la app móvil)
+// GET /auth/avatar/imagen — avatar opcional del usuario (no foto de legajo Personal)
 function handle_avatar_imagen(PDO $pdo, array $config): void
 {
     $auth = require_auth($pdo, $config);
-    $personal = fetch_personal_by_mail($pdo, (string) $auth['user']['Mail']);
 
     apply_cors($config);
-    if (stream_avatar_for_user($personal, $auth['user'])) {
+    if (stream_avatar_for_user($auth['user'])) {
         exit;
     }
 
     http_response_code(404);
     header('Content-Type: application/json; charset=utf-8');
-    echo json_encode(['message' => 'Sin foto de perfil'], JSON_UNESCAPED_UNICODE);
+    echo json_encode(['message' => 'Sin avatar de perfil'], JSON_UNESCAPED_UNICODE);
 }
 
-// DELETE /auth/avatar — vuelve al placeholder o NULL según tabla
+// DELETE /auth/avatar — quita solo Usuarios.ImgPerfil (no toca Personal.Foto)
 function handle_avatar_delete(PDO $pdo, array $config): void
 {
     $auth = require_auth($pdo, $config);
     $personal = fetch_personal_by_mail($pdo, (string) $auth['user']['Mail']);
 
-    if ($personal !== null) {
-        delete_archivo_fisico('foto_personal', $personal['Foto'] ?? null);
-        $stmt = $pdo->prepare(
-            "UPDATE Personal SET Foto = 'no-image.png', DateUpdate = NOW() WHERE Id = :id"
-        );
-        $stmt->execute(['id' => $personal['Id']]);
-        $personal['Foto'] = 'no-image.png';
-    } else {
-        delete_archivo_fisico('avatar_usuario', $auth['user']['ImgPerfil'] ?? null);
-        $stmt = $pdo->prepare(
-            'UPDATE Usuarios SET ImgPerfil = NULL, dateUpdate = NOW() WHERE Id = :id'
-        );
-        $stmt->execute(['id' => $auth['user']['Id']]);
-        $auth['user']['ImgPerfil'] = null;
-    }
+    delete_archivo_fisico('avatar_usuario', $auth['user']['ImgPerfil'] ?? null);
+    $stmt = $pdo->prepare(
+        'UPDATE Usuarios SET ImgPerfil = NULL, dateUpdate = NOW() WHERE Id = :id'
+    );
+    $stmt->execute(['id' => $auth['user']['Id']]);
+    $auth['user']['ImgPerfil'] = null;
 
     json_response([
         'ok' => true,
