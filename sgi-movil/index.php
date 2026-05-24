@@ -9,6 +9,7 @@ require_once __DIR__ . '/lib/avatar.php';
 require_once __DIR__ . '/lib/auth_salida_file.php';
 require_once __DIR__ . '/lib/asistencia_calendario.php';
 require_once __DIR__ . '/lib/horas_trabajadas_empleado.php';
+require_once __DIR__ . '/lib/novedades.php';
 
 $config = require __DIR__ . '/config.php';
 apply_cors($config);
@@ -45,7 +46,10 @@ try {
         $method === 'GET' && $path === '/fichadas' => handle_fichadas($pdo, $config),
         $method === 'GET' && $path === '/autorizaciones-salida' => handle_autorizaciones($pdo, $config),
         $method === 'GET' && $path === '/asistencia' => handle_asistencia($pdo, $config),
-        default => handle_autorizacion_archivo($pdo, $config, $path, $method),
+        $method === 'POST' && $path === '/push/registrar-token' => handle_push_registrar_token($pdo, $config),
+        $method === 'GET' && $path === '/novedades' => handle_novedades_list($pdo, $config),
+        $method === 'POST' && $path === '/novedades' => handle_novedades_enviar($pdo, $config),
+        default => handle_novedades_routes($pdo, $config, $path, $method),
     };
 // Cualquier excepción sin atrapar en un handler → 500 genérico
 } catch (Throwable $e) {
@@ -406,4 +410,106 @@ function handle_asistencia(PDO $pdo, array $config): void
         'dias' => asistencia_build_calendario($pdo, $personal, $desde, $hasta),
         'resumen' => horas_trabajadas_build_resumen($pdo, $personal, $desde, $hasta),
     ], 200, $config);
+}
+
+function novedades_require_tables(PDO $pdo, array $config): void
+{
+    if (!novedades_tables_exist($pdo)) {
+        json_response([
+            'message' => 'Módulo de novedades no instalado. Ejecutá docs/sql/movil_novedades.sql en MySQL.',
+        ], 503, $config);
+        exit;
+    }
+}
+
+// POST /push/registrar-token — guarda token Expo del dispositivo
+function handle_push_registrar_token(PDO $pdo, array $config): void
+{
+    $auth = require_auth($pdo, $config);
+    require_any_role($auth['roles'], $config);
+    novedades_require_tables($pdo, $config);
+
+    $body = json_decode(file_get_contents('php://input') ?: '{}', true) ?? [];
+    $token = trim((string) ($body['expoPushToken'] ?? ''));
+    if ($token === '') {
+        json_response(['message' => 'expoPushToken requerido'], 400, $config);
+        return;
+    }
+
+    novedades_registrar_token(
+        $pdo,
+        (string) $auth['user']['Id'],
+        $token,
+        isset($body['plataforma']) ? (string) $body['plataforma'] : null
+    );
+
+    json_response(['ok' => true], 200, $config);
+}
+
+// GET /novedades — bandeja del usuario logueado
+function handle_novedades_list(PDO $pdo, array $config): void
+{
+    $auth = require_auth($pdo, $config);
+    require_any_role($auth['roles'], $config);
+    novedades_require_tables($pdo, $config);
+
+    $uid = (string) $auth['user']['Id'];
+    json_response([
+        'novedades' => novedades_listar_usuario($pdo, $uid),
+        'noLeidas' => novedades_contar_no_leidas($pdo, $uid),
+    ], 200, $config);
+}
+
+// POST /novedades — envía novedad (API key, no JWT de empleado)
+function handle_novedades_enviar(PDO $pdo, array $config): void
+{
+    if (!novedades_validar_api_key($config)) {
+        json_response(['message' => 'API key inválida'], 401, $config);
+        return;
+    }
+    novedades_require_tables($pdo, $config);
+
+    $body = json_decode(file_get_contents('php://input') ?: '{}', true) ?? [];
+    $titulo = trim((string) ($body['titulo'] ?? ''));
+    $cuerpo = trim((string) ($body['cuerpo'] ?? ''));
+    if ($titulo === '' || $cuerpo === '') {
+        json_response(['message' => 'titulo y cuerpo son requeridos'], 400, $config);
+        return;
+    }
+
+    $usuarioIdsRaw = $body['usuarioIds'] ?? null;
+    $usuarioIds = null;
+    if (is_array($usuarioIdsRaw) && $usuarioIdsRaw !== []) {
+        $usuarioIds = novedades_resolve_destinatarios($pdo, $usuarioIdsRaw);
+    } else {
+        $usuarioIds = novedades_resolve_destinatarios($pdo, null);
+    }
+
+    if ($usuarioIds === []) {
+        json_response(['message' => 'No hay destinatarios para la novedad'], 400, $config);
+        return;
+    }
+
+    try {
+        $result = novedades_crear_y_enviar($pdo, $titulo, $cuerpo, $usuarioIds);
+        json_response(['ok' => true] + $result, 201, $config);
+    } catch (Throwable $e) {
+        json_response(['message' => 'No se pudo registrar la novedad'], 500, $config);
+    }
+}
+
+// POST /novedades/{id}/leida y fallback a archivos de auth salida
+function handle_novedades_routes(PDO $pdo, array $config, string $path, string $method): void
+{
+    if ($method === 'POST' && preg_match('#^/novedades/([0-9a-f-]{36})/leida$#i', $path, $m)) {
+        $auth = require_auth($pdo, $config);
+        require_any_role($auth['roles'], $config);
+        novedades_require_tables($pdo, $config);
+
+        $ok = novedades_marcar_leida($pdo, (string) $auth['user']['Id'], $m[1]);
+        json_response(['ok' => $ok], $ok ? 200 : 404, $config);
+        return;
+    }
+
+    handle_autorizacion_archivo($pdo, $config, $path, $method);
 }

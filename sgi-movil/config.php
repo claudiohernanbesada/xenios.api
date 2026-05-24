@@ -25,4 +25,6 @@ return [
     'api_base_path' => '/sgi-movil',
     // Origen permitido en CORS (* en dev, restringir en prod)
     'cors_origin' => '*',
+    // Clave para POST /novedades (sistemas externos / administración)
+    'novedades_api_key' => getenv('SGI_NOVEDADES_API_KEY') ?: 'cambiar-clave-novedades-produccion',
 ];
