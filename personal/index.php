@@ -1,6 +1,6 @@
 <?php
 /**
- * GET http://api.raei.com.ar/personal/{nombre.jpg}
+ * GET https://api.raei.com.ar/personal/{nombre.jpg}
  * Rutas desde _inc/rutas_archivos.php (foto_personal).
  */
 declare(strict_types=1);

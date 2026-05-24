@@ -1,6 +1,6 @@
 <?php
 /**
- * GET http://api.raei.com.ar/authsalida/{nombre.pdf}
+ * GET https://api.raei.com.ar/authsalida/{nombre.pdf}
  * Resuelve rutas desde _inc/rutas_archivos.php (dir local + url_respaldo).
  */
 declare(strict_types=1);
