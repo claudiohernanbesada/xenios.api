@@ -194,9 +194,14 @@ function enforce_method_for_roles(array $roles, string $method, string $path, ar
 function current_api_path(array $config): string
 {
     $uri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+    // Rewrite a index.php deja /sgi-movil/index.php/novedades — normalizar
+    $uri = preg_replace('#/index\.php(?=/|$)#', '', $uri) ?: '/';
     $base = rtrim($config['api_base_path'] ?? '/sgi-movil', '/');
-    if (str_starts_with($uri, $base)) {
+    if ($base !== '' && str_starts_with($uri, $base)) {
         $uri = substr($uri, strlen($base)) ?: '/';
+        while ($base !== '' && str_starts_with($uri, $base)) {
+            $uri = substr($uri, strlen($base)) ?: '/';
+        }
     }
     return rtrim($uri, '/') ?: '/';
 }
