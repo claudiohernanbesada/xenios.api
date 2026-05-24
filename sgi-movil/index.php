@@ -140,7 +140,7 @@ function handle_cambiar_clave(PDO $pdo, array $config): void
     json_response(['ok' => true], 200, $config);
 }
 
-// POST /auth/avatar — Usuarios.ImgPerfil → repo avatar_usuario (dir_absoluta en rutas_archivos.php)
+// POST /auth/avatar — intermediario: guarda en disco según avatar_usuario en rutas_archivos.php
 function handle_avatar_upload(PDO $pdo, array $config): void
 {
     $auth = require_auth($pdo, $config);

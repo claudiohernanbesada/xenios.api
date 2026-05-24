@@ -1,8 +1,8 @@
 <?php
 /**
- * Subida de avatar de perfil (compatible con SGI web / ProfileController).
- * Guarda en el repositorio avatar_usuario de _inc/rutas_archivos.php
- * (misma carpeta que consume POST /sgi-movil/auth/avatar en la app móvil).
+ * Subida de avatar para el SGI web (ProfileController).
+ * App móvil: NO usar este script; debe usar POST /sgi-movil/auth/avatar (la API resuelve rutas).
+ * Ambos guardan vía avatar_usuario en _inc/rutas_archivos.php.
  *
  * Campo multipart: archivo
  * Respuesta: texto plano "Archivo recibido y guardado como: {nombre}"
