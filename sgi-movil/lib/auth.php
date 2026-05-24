@@ -230,7 +230,8 @@ function fetch_personal_by_mail(PDO $pdo, string $mail): ?array
     return $row ?: null;
 }
 
-// Objeto usuario que consume la app (roles, legajo, URL del avatar, etc.)
+// Objeto usuario para la app móvil.
+// Avatar = Usuarios.ImgPerfil (repo avatar_usuario). NO usar Personal.Foto (foto de legajo).
 function build_usuario_response(array $user, array $roles, ?array $personal, array $config): array
 {
     require_once __DIR__ . '/avatar.php';

@@ -166,8 +166,8 @@ function handle_avatar_upload(PDO $pdo, array $config): void
             json_response(['message' => 'No se recibió el archivo correctamente (error ' . $err . ').'], 400, $config);
             return;
         }
-        if ($size > 512 * 1024) {
-            json_response(['message' => 'La imagen es demasiado grande (máximo 512 KB).'], 400, $config);
+        if ($size > SGI_AVATAR_MAX_BYTES) {
+            json_response(['message' => 'La imagen es demasiado grande (máximo 100 KB).'], 400, $config);
             return;
         }
         json_response([

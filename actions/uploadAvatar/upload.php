@@ -33,7 +33,7 @@ try {
 
 if ($fileName === null) {
     http_response_code(400);
-    echo 'Imagen inválida. Use JPG o PNG de hasta 512 KB.';
+    echo 'Imagen inválida. Use JPG o PNG de hasta 100 KB.';
     exit;
 }
 

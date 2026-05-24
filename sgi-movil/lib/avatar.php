@@ -6,6 +6,9 @@ declare(strict_types=1);
 // SGI web: POST .../actions/uploadAvatar/upload.php · Móvil: POST .../sgi-movil/auth/avatar
 const SGI_AVATAR_REPO = 'avatar_usuario';
 
+/** Mismo límite que ProfileController.UploadImage en SGI web (100 KB) */
+const SGI_AVATAR_MAX_BYTES = 100 * 1024;
+
 require_once dirname(__DIR__, 2) . '/_inc/rutas_archivos.php';
 require_once dirname(__DIR__, 2) . '/_inc/stream_archivo.php';
 
@@ -34,12 +37,13 @@ function ensure_upload_directory(string $claveRepositorio): string
 }
 
 // Guarda JPG/PNG con nombre aleatorio en el repo indicado
-function save_uploaded_foto(array $file, string $claveRepositorio): ?string
+function save_uploaded_foto(array $file, string $claveRepositorio, ?int $maxBytes = null): ?string
 {
     if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
         return null;
     }
-    if (($file['size'] ?? 0) > 512 * 1024) {
+    $limit = $maxBytes ?? ($claveRepositorio === SGI_AVATAR_REPO ? SGI_AVATAR_MAX_BYTES : 512 * 1024);
+    if (($file['size'] ?? 0) > $limit) {
         return null;
     }
 
