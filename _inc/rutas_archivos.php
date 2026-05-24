@@ -2,10 +2,21 @@
 // Mapa de carpetas en disco y URLs públicas — HTTPS en api.raei.com.ar/{repo}
 declare(strict_types=1);
 
+// Producción: avatares en apiReg (no en la carpeta avatar junto a sgi-movil bajo apiSgiRAEI).
+// Opcional: variable de entorno SGI_AVATAR_DIR=/var/www/vhost/apiReg/www/avatar
+$sgiAvatarDirAbsoluta = null;
+$sgiAvatarFromEnv = getenv('SGI_AVATAR_DIR');
+if (is_string($sgiAvatarFromEnv) && trim($sgiAvatarFromEnv) !== '') {
+    $sgiAvatarDirAbsoluta = rtrim(trim($sgiAvatarFromEnv), '/');
+} elseif (is_dir('/var/www/vhost/apiReg/www/avatar')) {
+    $sgiAvatarDirAbsoluta = '/var/www/vhost/apiReg/www/avatar';
+}
+
 /** @var array<string, array{dir: string, dir_absoluta?: string, url: string, url_respaldo?: list<string>}> */
 $GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
     'avatar_usuario' => [
         'dir' => '/avatar/',
+        'dir_absoluta' => $sgiAvatarDirAbsoluta,
         'url' => 'https://api.raei.com.ar/avatar',
     ],
     'foto_personal' => [
@@ -130,14 +141,26 @@ function sgi_rutas_fisicas_candidatas(string $clave): array
         return [];
     }
 
-    $candidatas = [sgi_ruta_fisica_escritura($clave)];
+    $candidatas = [];
 
     $abs = $rutas[$clave]['dir_absoluta'] ?? null;
     if (is_string($abs) && trim($abs) !== '') {
         $candidatas[] = rtrim(trim($abs), '/\\');
     }
 
+    $candidatas[] = sgi_ruta_fisica_escritura($clave);
     $candidatas[] = sgi_ruta_fisica($clave);
+
+    // Lectura legacy: avatar bajo el vhost apiSgiRAEI si existió una subida anterior
+    if ($clave === 'avatar_usuario') {
+        $legacy = sgi_api_site_root() . DIRECTORY_SEPARATOR . 'avatar';
+        $candidatas[] = $legacy;
+    } elseif ($clave !== 'avatar_usuario') {
+        $rel = ltrim((string) $rutas[$clave]['dir'], '/\\');
+        if ($rel !== '' && $rel !== '/') {
+            $candidatas[] = sgi_api_site_root() . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $rel);
+        }
+    }
 
     return array_values(array_unique($candidatas));
 }
@@ -161,7 +184,16 @@ function sgi_asegurar_directorio(string $clave): string
 {
     $dir = sgi_ruta_fisica_escritura($clave);
     if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
-        throw new RuntimeException("No se pudo preparar el repositorio: {$dir}");
+        throw new RuntimeException(
+            'No se pudo crear el directorio del repositorio: ' . $dir
+            . '. Verifique permisos de escritura para el usuario de Apache/PHP.'
+        );
+    }
+    if (!is_writable($dir)) {
+        throw new RuntimeException(
+            'El directorio del repositorio no tiene permiso de escritura: ' . $dir
+            . '. En el servidor: chown/chmod para www-data (o el usuario de PHP).'
+        );
     }
     return rtrim($dir, '/\\') . DIRECTORY_SEPARATOR;
 }

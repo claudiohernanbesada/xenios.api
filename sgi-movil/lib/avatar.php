@@ -58,7 +58,9 @@ function save_uploaded_foto(array $file, string $claveRepositorio, ?int $maxByte
     $dir = ensure_upload_directory($claveRepositorio);
     $destino = $dir . $fileName;
     if (!move_uploaded_file($file['tmp_name'], $destino)) {
-        return null;
+        $err = error_get_last();
+        $detail = isset($err['message']) ? (string) $err['message'] : 'move_uploaded_file falló';
+        throw new RuntimeException('No se pudo guardar el archivo en ' . $destino . ' (' . $detail . ')');
     }
 
     return $fileName;
