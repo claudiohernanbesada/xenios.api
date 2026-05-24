@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-// PDF de autorización de salida vía rutas_archivos.php (mismo criterio que /authsalida/)
+// PDF autorización de salida — lectura en dir_absoluta apiReg (ej. /var/www/vhost/apiReg/www/authsalida/)
 require_once dirname(__DIR__, 2) . '/_inc/stream_archivo.php';
 
 const SGI_REPO_AUTH_SALIDA = 'auth_salida';

@@ -2,17 +2,31 @@
 // Mapa de carpetas en disco y URLs públicas — HTTPS en api.raei.com.ar/{repo}
 declare(strict_types=1);
 
-// Producción: avatares en apiReg (no en la carpeta avatar junto a sgi-movil bajo apiSgiRAEI).
-// Opcional: variable de entorno SGI_AVATAR_DIR=/var/www/vhost/apiReg/www/avatar
-$sgiAvatarDirAbsoluta = null;
-$sgiAvatarFromEnv = getenv('SGI_AVATAR_DIR');
-if (is_string($sgiAvatarFromEnv) && trim($sgiAvatarFromEnv) !== '') {
-    $sgiAvatarDirAbsoluta = rtrim(trim($sgiAvatarFromEnv), '/');
-} elseif (is_dir('/var/www/vhost/apiReg/www/avatar')) {
-    $sgiAvatarDirAbsoluta = '/var/www/vhost/apiReg/www/avatar';
+/**
+ * Producción: archivos bajo apiReg, no bajo el vhost apiSgiRAEI donde vive sgi-movil.
+ * Variables de entorno opcionales: SGI_AVATAR_DIR, SGI_AUTHSALIDA_DIR, SGI_PERSONAL_DIR
+ */
+function sgi_dir_absoluta_api_reg(string $carpeta, ?string $envVar = null): ?string
+{
+    if ($envVar !== null) {
+        $fromEnv = getenv($envVar);
+        if (is_string($fromEnv) && trim($fromEnv) !== '') {
+            return rtrim(trim($fromEnv), '/');
+        }
+    }
+    $prod = '/var/www/vhost/apiReg/www/' . trim($carpeta, '/');
+    if (is_dir($prod)) {
+        return $prod;
+    }
+
+    return null;
 }
 
-/** @var array<string, array{dir: string, dir_absoluta?: string, url: string, url_respaldo?: list<string>}> */
+$sgiAvatarDirAbsoluta = sgi_dir_absoluta_api_reg('avatar', 'SGI_AVATAR_DIR');
+$sgiAuthsalidaDirAbsoluta = sgi_dir_absoluta_api_reg('authsalida', 'SGI_AUTHSALIDA_DIR');
+$sgiPersonalDirAbsoluta = sgi_dir_absoluta_api_reg('personal', 'SGI_PERSONAL_DIR');
+
+/** @var array<string, array{dir: string, dir_absoluta?: string|null, url: string, url_respaldo?: list<string>}> */
 $GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
     'avatar_usuario' => [
         'dir' => '/avatar/',
@@ -21,10 +35,12 @@ $GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
     ],
     'foto_personal' => [
         'dir' => '/personal/',
+        'dir_absoluta' => $sgiPersonalDirAbsoluta,
         'url' => 'https://api.raei.com.ar/personal',
     ],
     'auth_salida' => [
         'dir' => '/authsalida/',
+        'dir_absoluta' => $sgiAuthsalidaDirAbsoluta,
         'url' => 'https://api.raei.com.ar/authsalida',
     ],
 ];
@@ -134,6 +150,22 @@ function sgi_ruta_fisica_escritura(string $clave): string
     return sgi_ruta_fisica_relativa_api($clave);
 }
 
+/** Carpetas legacy bajo el vhost apiSgiRAEI (subidas antiguas). */
+function sgi_ruta_legacy_api_sgi(string $clave): ?string
+{
+    $rel = match ($clave) {
+        'avatar_usuario' => 'avatar',
+        'auth_salida' => 'authsalida',
+        'foto_personal' => 'personal',
+        default => null,
+    };
+    if ($rel === null) {
+        return null;
+    }
+
+    return sgi_api_site_root() . DIRECTORY_SEPARATOR . $rel;
+}
+
 function sgi_rutas_fisicas_candidatas(string $clave): array
 {
     $rutas = sgi_rutas_archivos();
@@ -151,15 +183,9 @@ function sgi_rutas_fisicas_candidatas(string $clave): array
     $candidatas[] = sgi_ruta_fisica_escritura($clave);
     $candidatas[] = sgi_ruta_fisica($clave);
 
-    // Lectura legacy: avatar bajo el vhost apiSgiRAEI si existió una subida anterior
-    if ($clave === 'avatar_usuario') {
-        $legacy = sgi_api_site_root() . DIRECTORY_SEPARATOR . 'avatar';
+    $legacy = sgi_ruta_legacy_api_sgi($clave);
+    if ($legacy !== null) {
         $candidatas[] = $legacy;
-    } elseif ($clave !== 'avatar_usuario') {
-        $rel = ltrim((string) $rutas[$clave]['dir'], '/\\');
-        if ($rel !== '' && $rel !== '/') {
-            $candidatas[] = sgi_api_site_root() . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $rel);
-        }
     }
 
     return array_values(array_unique($candidatas));
@@ -192,7 +218,7 @@ function sgi_asegurar_directorio(string $clave): string
     if (!is_writable($dir)) {
         throw new RuntimeException(
             'El directorio del repositorio no tiene permiso de escritura: ' . $dir
-            . '. En el servidor: chown/chmod para www-data (o el usuario de PHP).'
+            . '. En el servidor: chown/chmod para el usuario de PHP.'
         );
     }
     return rtrim($dir, '/\\') . DIRECTORY_SEPARATOR;
