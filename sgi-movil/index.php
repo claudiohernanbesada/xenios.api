@@ -7,6 +7,8 @@ require_once __DIR__ . '/lib/db.php';
 require_once __DIR__ . '/lib/auth.php';
 require_once __DIR__ . '/lib/avatar.php';
 require_once __DIR__ . '/lib/auth_salida_file.php';
+require_once __DIR__ . '/lib/asistencia_calendario.php';
+require_once __DIR__ . '/lib/horas_trabajadas_empleado.php';
 
 $config = require __DIR__ . '/config.php';
 apply_cors($config);
@@ -42,6 +44,7 @@ try {
         $method === 'GET' && $path === '/auth/avatar/imagen' => handle_avatar_imagen($pdo, $config),
         $method === 'GET' && $path === '/fichadas' => handle_fichadas($pdo, $config),
         $method === 'GET' && $path === '/autorizaciones-salida' => handle_autorizaciones($pdo, $config),
+        $method === 'GET' && $path === '/asistencia' => handle_asistencia($pdo, $config),
         default => handle_autorizacion_archivo($pdo, $config, $path, $method),
     };
 // Cualquier excepción sin atrapar en un handler → 500 genérico
@@ -371,4 +374,36 @@ function handle_autorizacion_archivo(PDO $pdo, array $config, string $path, stri
     }
 
     json_response(['message' => 'El archivo no está en el servidor'], 404, $config);
+}
+
+// GET /asistencia?desde=&hasta= — calendario y resumen del empleado logueado
+function handle_asistencia(PDO $pdo, array $config): void
+{
+    $auth = require_auth($pdo, $config);
+    require_empleado_role($auth['roles'], $config);
+
+    $desde = (string) ($_GET['desde'] ?? '');
+    $hasta = (string) ($_GET['hasta'] ?? '');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $desde) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $hasta)) {
+        json_response(['message' => 'Parámetros desde/hasta inválidos (YYYY-MM-DD)'], 400, $config);
+        return;
+    }
+
+    $personal = fetch_personal_empleado_completo($pdo, (string) $auth['user']['Mail']);
+    if ($personal === null) {
+        json_response([
+            'desde' => $desde,
+            'hasta' => $hasta,
+            'dias' => [],
+            'resumen' => horas_trabajadas_build_resumen($pdo, ['Id' => '', 'Legajo' => 0], $desde, $hasta),
+        ], 200, $config);
+        return;
+    }
+
+    json_response([
+        'desde' => $desde,
+        'hasta' => $hasta,
+        'dias' => asistencia_build_calendario($pdo, $personal, $desde, $hasta),
+        'resumen' => horas_trabajadas_build_resumen($pdo, $personal, $desde, $hasta),
+    ], 200, $config);
 }

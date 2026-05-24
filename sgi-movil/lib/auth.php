@@ -230,6 +230,25 @@ function fetch_personal_by_mail(PDO $pdo, string $mail): ?array
     return $row ?: null;
 }
 
+/** Personal del empleado logueado con campos para reportes de asistencia/horas. */
+function fetch_personal_empleado_completo(PDO $pdo, string $mail): ?array
+{
+    $stmt = $pdo->prepare(
+        'SELECT p.Id, p.Legajo, p.Nombre, p.Apellido, p.Estado, p.FechaBaja, a.Nombre AS AreaNombre
+         FROM Personal p
+         LEFT JOIN Area a ON a.Id = p.ArealId
+         WHERE p.Estado IN (1, 2)
+           AND (
+             LOWER(TRIM(p.EmailCorporativo)) = LOWER(:mail)
+             OR LOWER(TRIM(p.Email)) = LOWER(:mail)
+           )
+         LIMIT 1'
+    );
+    $stmt->execute(['mail' => strtolower(trim($mail))]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
 // Objeto usuario para la app móvil.
 // Avatar = Usuarios.ImgPerfil (repo avatar_usuario). NO usar Personal.Foto (foto de legajo).
 function build_usuario_response(array $user, array $roles, ?array $personal, array $config): array
