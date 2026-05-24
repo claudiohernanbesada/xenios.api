@@ -414,12 +414,17 @@ function handle_asistencia(PDO $pdo, array $config): void
 
 function novedades_require_tables(PDO $pdo, array $config): void
 {
-    if (!novedades_tables_exist($pdo)) {
-        json_response([
-            'message' => 'Módulo de novedades no instalado. Ejecutá docs/sql/movil_novedades.sql en MySQL.',
-        ], 503, $config);
-        exit;
+    $missing = novedades_missing_tables($pdo);
+    if ($missing === []) {
+        return;
     }
+    json_response([
+        'message' => 'Faltan tablas de novedades en la base MySQL de la API (credenciales.php del servidor): '
+            . implode(', ', $missing)
+            . '. Ejecutá movil_novedades.sql en esa misma base (p. ej. sgiraei).',
+        'tablasFaltantes' => $missing,
+    ], 503, $config);
+    exit;
 }
 
 // POST /push/registrar-token — guarda token Expo del dispositivo

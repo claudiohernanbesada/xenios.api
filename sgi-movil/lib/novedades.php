@@ -12,14 +12,30 @@ function novedades_new_id(): string
     return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($b), 4));
 }
 
+/** Tablas requeridas por el módulo (nombres exactos del script SQL). */
+function novedades_required_tables(): array
+{
+    return ['MovilNovedad', 'MovilNovedadUsuario', 'MovilPushToken'];
+}
+
+/** Nombres de tablas que la API no puede leer en la BD configurada en credenciales.php del servidor. */
+function novedades_missing_tables(PDO $pdo): array
+{
+    $missing = [];
+    foreach (novedades_required_tables() as $table) {
+        try {
+            $pdo->query("SELECT 1 FROM `{$table}` LIMIT 1");
+        } catch (Throwable) {
+            $missing[] = $table;
+        }
+    }
+
+    return $missing;
+}
+
 function novedades_tables_exist(PDO $pdo): bool
 {
-    try {
-        $pdo->query('SELECT 1 FROM MovilNovedad LIMIT 1');
-        return true;
-    } catch (Throwable) {
-        return false;
-    }
+    return novedades_missing_tables($pdo) === [];
 }
 
 /** Usuarios activos con rol EMPLEADO (o todos los del array si se pasa). */
