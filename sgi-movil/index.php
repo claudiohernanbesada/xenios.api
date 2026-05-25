@@ -482,6 +482,16 @@ function handle_novedades_enviar(PDO $pdo, array $config): void
         return;
     }
 
+    $fromRaw = trim((string) ($body['from'] ?? $body['enviadoPorUsuarioId'] ?? ''));
+    if ($fromRaw === '') {
+        json_response(['message' => 'from (GUID del remitente) es requerido'], 400, $config);
+        return;
+    }
+    if (novedades_usuario_activo($pdo, $fromRaw) === null) {
+        json_response(['message' => 'Remitente (from) no encontrado o inactivo'], 400, $config);
+        return;
+    }
+
     $usuarioIdsRaw = $body['usuarioIds'] ?? null;
     $usuarioIds = null;
     if (is_array($usuarioIdsRaw) && $usuarioIdsRaw !== []) {
@@ -496,7 +506,7 @@ function handle_novedades_enviar(PDO $pdo, array $config): void
     }
 
     try {
-        $result = novedades_crear_y_enviar($pdo, $titulo, $cuerpo, $usuarioIds);
+        $result = novedades_crear_y_enviar($pdo, $titulo, $cuerpo, $fromRaw, $usuarioIds);
         json_response(['ok' => true] + $result, 201, $config);
     } catch (Throwable $e) {
         json_response(['message' => 'No se pudo registrar la novedad'], 500, $config);
@@ -506,6 +516,20 @@ function handle_novedades_enviar(PDO $pdo, array $config): void
 // POST /novedades/{id}/leida y fallback a archivos de auth salida
 function handle_novedades_routes(PDO $pdo, array $config, string $path, string $method): void
 {
+    if ($method === 'GET' && preg_match('#^/novedades/([0-9a-f-]{36})$#i', $path, $m)) {
+        $auth = require_auth($pdo, $config);
+        require_any_role($auth['roles'], $config);
+        novedades_require_tables($pdo, $config);
+
+        $item = novedades_obtener_para_usuario($pdo, (string) $auth['user']['Id'], $m[1]);
+        if ($item === null) {
+            json_response(['message' => 'Novedad no encontrada'], 404, $config);
+            return;
+        }
+        json_response(['novedad' => $item], 200, $config);
+        return;
+    }
+
     if ($method === 'POST' && preg_match('#^/novedades/([0-9a-f-]{36})/leida$#i', $path, $m)) {
         $auth = require_auth($pdo, $config);
         require_any_role($auth['roles'], $config);

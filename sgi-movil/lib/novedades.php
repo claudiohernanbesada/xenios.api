@@ -64,6 +64,54 @@ function novedades_resolve_destinatarios(PDO $pdo, ?array $usuarioIds): array
     return $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
 }
 
+function novedades_usuario_activo(PDO $pdo, string $usuarioId): ?array
+{
+    $stmt = $pdo->prepare(
+        'SELECT Id, Nombre, Apellido, Mail FROM Usuarios WHERE Id = :id AND Estado = 1 LIMIT 1'
+    );
+    $stmt->execute(['id' => $usuarioId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row ?: null;
+}
+
+/** @return array{from: string, fromNombre: string, fromMail: string|null} */
+function novedades_remitente_desde_fila(array $row): array
+{
+    $from = (string) ($row['EnviadoPorUsuarioId'] ?? '');
+    $nombre = trim((string) ($row['EnvNombre'] ?? '') . ' ' . (string) ($row['EnvApellido'] ?? ''));
+    $mail = trim((string) ($row['EnvMail'] ?? ''));
+
+    if ($nombre === '' && $mail !== '') {
+        $nombre = $mail;
+    }
+    if ($nombre === '') {
+        $nombre = 'Desconocido';
+    }
+
+    return [
+        'from' => $from,
+        'fromNombre' => $nombre,
+        'fromMail' => $mail !== '' ? $mail : null,
+    ];
+}
+
+/** @return array<string, mixed> */
+function novedades_map_item(array $row): array
+{
+    $leidaEn = $row['LeidaEn'] ?? null;
+    $remitente = novedades_remitente_desde_fila($row);
+
+    return [
+        'id' => (string) $row['Id'],
+        'titulo' => (string) $row['Titulo'],
+        'cuerpo' => (string) $row['Cuerpo'],
+        'creadoEn' => novedades_format_datetime($row['CreadoEn'] ?? ''),
+        'leida' => $leidaEn !== null && $leidaEn !== '',
+        'leidaEn' => $leidaEn ? novedades_format_datetime((string) $leidaEn) : null,
+    ] + $remitente;
+}
+
 /**
  * @param list<string> $usuarioIds
  * @return array{novedadId: string, destinatarios: int, pushEnviados: int, pushErrores: list<string>}
@@ -72,6 +120,7 @@ function novedades_crear_y_enviar(
     PDO $pdo,
     string $titulo,
     string $cuerpo,
+    string $enviadoPorUsuarioId,
     array $usuarioIds
 ): array {
     $novedadId = novedades_new_id();
@@ -80,12 +129,14 @@ function novedades_crear_y_enviar(
     $pdo->beginTransaction();
     try {
         $ins = $pdo->prepare(
-            'INSERT INTO MovilNovedad (Id, Titulo, Cuerpo, CreadoEn) VALUES (:id, :titulo, :cuerpo, :creado)'
+            'INSERT INTO MovilNovedad (Id, Titulo, Cuerpo, EnviadoPorUsuarioId, CreadoEn)
+             VALUES (:id, :titulo, :cuerpo, :from, :creado)'
         );
         $ins->execute([
             'id' => $novedadId,
             'titulo' => $titulo,
             'cuerpo' => $cuerpo,
+            'from' => $enviadoPorUsuarioId,
             'creado' => $ahora,
         ]);
 
@@ -181,9 +232,11 @@ function novedades_registrar_token(
 function novedades_listar_usuario(PDO $pdo, string $usuarioId, int $limit = 100): array
 {
     $stmt = $pdo->prepare(
-        'SELECT n.Id, n.Titulo, n.Cuerpo, n.CreadoEn, nu.LeidaEn
+        'SELECT n.Id, n.Titulo, n.Cuerpo, n.CreadoEn, n.EnviadoPorUsuarioId, nu.LeidaEn,
+                eu.Nombre AS EnvNombre, eu.Apellido AS EnvApellido, eu.Mail AS EnvMail
          FROM MovilNovedadUsuario nu
          INNER JOIN MovilNovedad n ON n.Id = nu.NovedadId
+         LEFT JOIN Usuarios eu ON eu.Id = n.EnviadoPorUsuarioId
          WHERE nu.UsuarioId = :uid
          ORDER BY n.CreadoEn DESC
          LIMIT ' . max(1, min($limit, 200))
@@ -191,18 +244,25 @@ function novedades_listar_usuario(PDO $pdo, string $usuarioId, int $limit = 100)
     $stmt->execute(['uid' => $usuarioId]);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-    return array_map(static function (array $row): array {
-        $leidaEn = $row['LeidaEn'] ?? null;
+    return array_map(static fn (array $row): array => novedades_map_item($row), $rows);
+}
 
-        return [
-            'id' => (string) $row['Id'],
-            'titulo' => (string) $row['Titulo'],
-            'cuerpo' => (string) $row['Cuerpo'],
-            'creadoEn' => novedades_format_datetime($row['CreadoEn'] ?? ''),
-            'leida' => $leidaEn !== null && $leidaEn !== '',
-            'leidaEn' => $leidaEn ? novedades_format_datetime((string) $leidaEn) : null,
-        ];
-    }, $rows);
+/** @return array<string, mixed>|null */
+function novedades_obtener_para_usuario(PDO $pdo, string $usuarioId, string $novedadId): ?array
+{
+    $stmt = $pdo->prepare(
+        'SELECT n.Id, n.Titulo, n.Cuerpo, n.CreadoEn, n.EnviadoPorUsuarioId, nu.LeidaEn,
+                eu.Nombre AS EnvNombre, eu.Apellido AS EnvApellido, eu.Mail AS EnvMail
+         FROM MovilNovedadUsuario nu
+         INNER JOIN MovilNovedad n ON n.Id = nu.NovedadId
+         LEFT JOIN Usuarios eu ON eu.Id = n.EnviadoPorUsuarioId
+         WHERE nu.UsuarioId = :uid AND n.Id = :nid
+         LIMIT 1'
+    );
+    $stmt->execute(['uid' => $usuarioId, 'nid' => $novedadId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row ? novedades_map_item($row) : null;
 }
 
 function novedades_contar_no_leidas(PDO $pdo, string $usuarioId): int
