@@ -10,6 +10,7 @@ require_once __DIR__ . '/lib/auth_salida_file.php';
 require_once __DIR__ . '/lib/asistencia_calendario.php';
 require_once __DIR__ . '/lib/horas_trabajadas_empleado.php';
 require_once __DIR__ . '/lib/novedades.php';
+require_once __DIR__ . '/lib/password_reset.php';
 
 $config = require __DIR__ . '/config.php';
 apply_cors($config);
@@ -38,6 +39,9 @@ try {
     match (true) {
         $method === 'GET' && $path === '/health' => json_response(['ok' => true, 'service' => 'sgi-movil'], 200, $config),
         $method === 'POST' && $path === '/auth/login' => handle_login($pdo, $config),
+        $method === 'POST' && $path === '/auth/recuperar-clave' => handle_recuperar_clave_solicitud($pdo, $config),
+        $method === 'GET' && $path === '/auth/recuperar-clave/validar' => handle_recuperar_clave_validar($pdo, $config),
+        $method === 'POST' && $path === '/auth/recuperar-clave/completar' => handle_recuperar_clave_completar($pdo, $config),
         $method === 'GET' && $path === '/auth/me' => handle_me($pdo, $config),
         $method === 'POST' && $path === '/auth/cambiar-clave' => handle_cambiar_clave($pdo, $config),
         $method === 'POST' && $path === '/auth/avatar' => handle_avatar_upload($pdo, $config),
@@ -54,6 +58,51 @@ try {
 // Cualquier excepción sin atrapar en un handler → 500 genérico
 } catch (Throwable $e) {
     json_response(['message' => 'Error interno del servidor'], 500, $config);
+}
+
+// POST /auth/recuperar-clave — envía mail con enlace (respuesta genérica)
+function handle_recuperar_clave_solicitud(PDO $pdo, array $config): void
+{
+    $body = json_decode(file_get_contents('php://input') ?: '{}', true) ?? [];
+    $correo = strtolower(trim((string) ($body['correo'] ?? '')));
+    if ($correo === '' || !filter_var($correo, FILTER_VALIDATE_EMAIL)) {
+        json_response(['message' => 'Ingresá un correo electrónico válido'], 400, $config);
+        return;
+    }
+
+    $result = password_reset_request($pdo, $config, $correo);
+    $code = ($result['ok'] ?? false) ? 200 : 503;
+    json_response($result, $code, $config);
+}
+
+// GET /auth/recuperar-clave/validar?token= — comprueba token antes del formulario web
+function handle_recuperar_clave_validar(PDO $pdo, array $config): void
+{
+    $token = trim((string) ($_GET['token'] ?? ''));
+    if ($token === '') {
+        json_response(['ok' => false, 'message' => 'Token requerido'], 400, $config);
+        return;
+    }
+
+    $result = password_reset_validate($pdo, $token);
+    json_response($result, ($result['ok'] ?? false) ? 200 : 400, $config);
+}
+
+// POST /auth/recuperar-clave/completar — nueva clave con token del mail (sin sesión)
+function handle_recuperar_clave_completar(PDO $pdo, array $config): void
+{
+    $body = json_decode(file_get_contents('php://input') ?: '{}', true) ?? [];
+    $token = trim((string) ($body['token'] ?? ''));
+    $nueva = (string) ($body['nuevaClave'] ?? '');
+    $confirmacion = (string) ($body['confirmacion'] ?? '');
+
+    if ($token === '') {
+        json_response(['message' => 'Token requerido'], 400, $config);
+        return;
+    }
+
+    $result = password_reset_complete($pdo, $config, $token, $nueva, $confirmacion);
+    json_response($result, ($result['ok'] ?? false) ? 200 : 400, $config);
 }
 
 // POST /auth/login — mail + clave, devuelve JWT y datos del usuario
