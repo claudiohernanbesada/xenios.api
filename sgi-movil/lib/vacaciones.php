@@ -12,6 +12,12 @@ require_once __DIR__ . '/horas_trabajadas_empleado.php';
 /** Condición SQL: licencia cargada como vacaciones en el SGI. */
 const VACACIONES_SQL_MOTIVO = "(UPPER(TRIM(m.Codigo)) = 'VAC' OR UPPER(TRIM(m.Motivo)) LIKE '%VACACION%')";
 
+/**
+ * Meses mínimos trabajados en el año calendario para el período completo (LCT art. 150:
+ * fracción de año mayor a seis meses → vacaciones íntegras según antigüedad).
+ */
+const VACACIONES_MESES_PERIODO_COMPLETO = 6;
+
 /** Días de vacaciones según años de antigüedad (LCT art. 150, al 31/12 del año). */
 function vacaciones_dias_ley_por_antiguedad(int $anosCompletos): int
 {
@@ -84,9 +90,11 @@ function vacaciones_dias_correspondientes(
 
     if ((int) $fechaAlta->format('Y') === $anio) {
         $meses = vacaciones_meses_en_anio($fechaAlta, $fechaBaja, $anio);
-        if ($meses < 12) {
+        if ($meses < VACACIONES_MESES_PERIODO_COMPLETO) {
             return (int) round($base * $meses / 12);
         }
+        // ≥ 6 meses en el año de alta: período completo (no proporcional 11/12, etc.)
+        return $base;
     }
 
     return $base;
