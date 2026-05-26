@@ -1,3 +1,3 @@
 <?php 
-echo "api-sgi";
+echo "SGI SERVER";
 ?>
