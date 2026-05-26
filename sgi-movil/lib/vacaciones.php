@@ -9,8 +9,21 @@ declare(strict_types=1);
  */
 require_once __DIR__ . '/horas_trabajadas_empleado.php';
 
-/** Condición SQL: licencia cargada como vacaciones en el SGI. */
+/** Condición SQL: licencia cargada como vacaciones en el SGI (mismo criterio que horas trabajadas). */
 const VACACIONES_SQL_MOTIVO = "(UPPER(TRIM(m.Codigo)) = 'VAC' OR UPPER(TRIM(m.Motivo)) LIKE '%VACACION%')";
+
+/**
+ * Días del período vacacional inclusive (calendario: incluye sábados y domingos).
+ * Mismo criterio que horas_trabajadas_licencias_rangos(..., 'vac').
+ */
+function vacaciones_contar_dias_periodo(DateTimeImmutable $desde, DateTimeImmutable $hasta): int
+{
+    if ($desde > $hasta) {
+        return 0;
+    }
+
+    return (int) $hasta->diff($desde)->days + 1;
+}
 
 /**
  * Meses mínimos trabajados en el año calendario para el período completo (LCT art. 150:
@@ -141,7 +154,6 @@ function vacaciones_fetch_consumidas(PDO $pdo, string $personalId, int $anio): a
             FROM PersonalLicencias pl
             INNER JOIN PersonalLicenciasMotivo m ON m.Id = pl.PersonalLicenciasMotivoId
             WHERE pl.Estado = 1
-              AND m.Estado = 1
               AND pl.PersonalId = :pid
               AND pl.Desde <= :hasta AND pl.Hasta >= :desde
               AND ' . VACACIONES_SQL_MOTIVO . '
@@ -161,15 +173,16 @@ function vacaciones_fetch_consumidas(PDO $pdo, string $personalId, int $anio): a
         $clipDesde = $d < $desdeDt ? $desdeDt : $d;
         $clipHasta = $h > $hastaDt ? $hastaDt : $h;
 
-        $dias = ht_contar_dias_habiles($clipDesde, $clipHasta);
-        if ($dias <= 0) {
+        if ($clipDesde > $clipHasta) {
             continue;
         }
 
+        $dias = vacaciones_contar_dias_periodo($clipDesde, $clipHasta);
+
         $consumidas[] = [
             'id' => (string) $row['Id'],
-            'desde' => $clipDesde->format('Y-m-d'),
-            'hasta' => $clipHasta->format('Y-m-d'),
+            'desde' => $d->format('Y-m-d'),
+            'hasta' => $h->format('Y-m-d'),
             'dias' => $dias,
             'comentarios' => isset($row['Comentarios']) && $row['Comentarios'] !== ''
                 ? (string) $row['Comentarios']
