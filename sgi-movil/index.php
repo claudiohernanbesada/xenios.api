@@ -11,6 +11,7 @@ require_once __DIR__ . '/lib/asistencia_calendario.php';
 require_once __DIR__ . '/lib/horas_trabajadas_empleado.php';
 require_once __DIR__ . '/lib/novedades.php';
 require_once __DIR__ . '/lib/password_reset.php';
+require_once __DIR__ . '/lib/vacaciones.php';
 
 $config = require __DIR__ . '/config.php';
 apply_cors($config);
@@ -50,6 +51,7 @@ try {
         $method === 'GET' && $path === '/fichadas' => handle_fichadas($pdo, $config),
         $method === 'GET' && $path === '/autorizaciones-salida' => handle_autorizaciones($pdo, $config),
         $method === 'GET' && $path === '/asistencia' => handle_asistencia($pdo, $config),
+        $method === 'GET' && $path === '/vacaciones' => handle_vacaciones($pdo, $config),
         $method === 'POST' && $path === '/push/registrar-token' => handle_push_registrar_token($pdo, $config),
         $method === 'GET' && $path === '/novedades' => handle_novedades_list($pdo, $config),
         $method === 'POST' && $path === '/novedades' => handle_novedades_enviar($pdo, $config),
@@ -459,6 +461,44 @@ function handle_asistencia(PDO $pdo, array $config): void
         'dias' => asistencia_build_calendario($pdo, $personal, $desde, $hasta),
         'resumen' => horas_trabajadas_build_resumen($pdo, $personal, $desde, $hasta),
     ], 200, $config);
+}
+
+// GET /vacaciones?anio=YYYY — días correspondientes, consumidos y restantes del empleado
+function handle_vacaciones(PDO $pdo, array $config): void
+{
+    $auth = require_auth($pdo, $config);
+    require_empleado_role($auth['roles'], $config);
+
+    $anioRaw = (string) ($_GET['anio'] ?? date('Y'));
+    if (!preg_match('/^\d{4}$/', $anioRaw)) {
+        json_response(['message' => 'Parámetro anio inválido (YYYY)'], 400, $config);
+        return;
+    }
+    $anio = (int) $anioRaw;
+
+    $personal = fetch_personal_vacaciones($pdo, (string) $auth['user']['Mail']);
+    if ($personal === null) {
+        json_response([
+            'anio' => $anio,
+            'aniosDisponibles' => [(int) date('Y')],
+            'fechaAlta' => null,
+            'antiguedadAnios' => 0,
+            'diasCorrespondientes' => 0,
+            'diasConsumidos' => 0,
+            'diasRestantes' => 0,
+            'consumidas' => [],
+        ], 200, $config);
+        return;
+    }
+
+    try {
+        $payload = vacaciones_build_response($pdo, $personal, $anio);
+    } catch (InvalidArgumentException $e) {
+        json_response(['message' => $e->getMessage()], 400, $config);
+        return;
+    }
+
+    json_response($payload, 200, $config);
 }
 
 function novedades_require_tables(PDO $pdo, array $config): void

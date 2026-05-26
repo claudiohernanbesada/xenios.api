@@ -192,7 +192,7 @@ function horas_trabajadas_licencias_rangos(
         return [];
     }
 
-    $sql = 'SELECT pl.Desde, pl.Hasta, m.Codigo, m.Resta
+    $sql = 'SELECT pl.Desde, pl.Hasta, pl.Comentarios, m.Codigo, m.Resta
             FROM PersonalLicencias pl
             INNER JOIN PersonalLicenciasMotivo m ON m.Id = pl.PersonalLicenciasMotivoId
             WHERE pl.Estado = 1 AND pl.PersonalId = :pid
@@ -233,6 +233,7 @@ function horas_trabajadas_licencias_rangos(
             'Hasta' => $clipHasta->format('Y-m-d'),
             'DesdeDate' => $clipDesde,
             'HastaDate' => $clipHasta,
+            'Comentarios' => $row['Comentarios'] ?? null,
         ];
     }
 
