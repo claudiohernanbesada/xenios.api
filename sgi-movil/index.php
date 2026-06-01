@@ -12,6 +12,7 @@ require_once __DIR__ . '/lib/horas_trabajadas_empleado.php';
 require_once __DIR__ . '/lib/novedades.php';
 require_once __DIR__ . '/lib/password_reset.php';
 require_once __DIR__ . '/lib/vacaciones.php';
+require_once __DIR__ . '/lib/auth_salida_list.php';
 
 $config = require __DIR__ . '/config.php';
 apply_cors($config);
@@ -346,47 +347,14 @@ function handle_autorizaciones(PDO $pdo, array $config): void
 {
     $auth = require_auth($pdo, $config);
     require_empleado_role($auth['roles'], $config);
-    $personal = fetch_personal_by_mail($pdo, (string) $auth['user']['Mail']);
+    $personal = fetch_personal_empleado_completo($pdo, (string) $auth['user']['Mail']);
 
     if ($personal === null) {
         json_response(['autorizaciones' => []], 200, $config);
         return;
     }
 
-    $stmt = $pdo->prepare(
-        'SELECT a.Id, a.Fecha, a.HoraSalida, a.HoraRegreso,
-                m.MotivoAuth, a.MotivoDetalle, a.AuthFile
-         FROM AuthSalida a
-         INNER JOIN AuthSalidaMotivos m ON m.Id = a.MotivoId
-         WHERE a.Estado = 1 AND a.PersonalId = :pid
-         ORDER BY a.Fecha DESC, a.HoraSalida DESC'
-    );
-    $stmt->execute(['pid' => $personal['Id']]);
-    $rows = $stmt->fetchAll();
-
-    $autorizaciones = array_map(static function (array $row): array {
-        // Fecha a dd/mm/yyyy y flags de archivo adjunto para la app
-        $fechaRaw = (string) $row['Fecha'];
-        $fechaFmt = $fechaRaw;
-        $parsed = DateTimeImmutable::createFromFormat('Y-m-d', $fechaRaw);
-        if ($parsed) {
-            $fechaFmt = $parsed->format('d/m/Y');
-        }
-
-        $authFile = $row['AuthFile'] ?? null;
-        $tiene = $authFile !== null && $authFile !== '';
-
-        return [
-            'id' => (string) $row['Id'],
-            'fecha' => $fechaFmt,
-            'horaSalida' => substr((string) $row['HoraSalida'], 0, 5),
-            'horaRegreso' => substr((string) $row['HoraRegreso'], 0, 5),
-            'motivo' => (string) $row['MotivoAuth'],
-            'motivoDetalle' => $row['MotivoDetalle'] ?: null,
-            'tieneArchivo' => $tiene,
-            'nombreArchivo' => $tiene ? basename((string) $authFile) : null,
-        ];
-    }, $rows);
+    $autorizaciones = auth_salida_list_for_personal($pdo, $personal);
 
     json_response(['autorizaciones' => $autorizaciones], 200, $config);
 }
