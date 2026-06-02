@@ -363,17 +363,28 @@ function asistencia_agrupar_fichadas_por_dia(
 
         $authSalida = $authPorFecha[$fechaKey] ?? null;
         $hayFichadasPosterioresAuth = false;
-        if ($authSalida !== null) {
-            $referenciaAuth = asistencia_referencia_auth($authSalida);
+        if ($authSalida !== null && $entradaDt !== null) {
+            $limitePosterior = asistencia_referencia_limite_posterior_auth(
+                $authSalida,
+                $turnos,
+                $entradaDt,
+                $personalId,
+                $areasDict
+            );
             foreach ($lista as $f) {
-                if ($f['Fecha'] > $referenciaAuth) {
+                if ($f['Fecha'] > $limitePosterior) {
                     $hayFichadasPosterioresAuth = true;
                     break;
                 }
             }
         }
 
-        if ($entradaDt !== null && $salidaDt === null && !$hayFichadasPosterioresAuth && $authSalida !== null) {
+        $tieneSalidaEfectivaSinRegreso = $authSalida !== null
+            && $entradaDt !== null
+            && !empty($authSalida['FechaHoraSalidaEfectiva'])
+            && empty($authSalida['FechaHoraRegresoEfectiva']);
+
+        if ($tieneSalidaEfectivaSinRegreso && !$hayFichadasPosterioresAuth) {
             if (!empty($authSalida['FechaHoraRegresoEfectiva'])) {
                 $reg = new DateTimeImmutable((string) $authSalida['FechaHoraRegresoEfectiva']);
                 $horarioRegreso = $reg->format('H:i:s');
@@ -413,16 +424,47 @@ function asistencia_agrupar_fichadas_por_dia(
     return $map;
 }
 
-function asistencia_referencia_auth(array $authSalida): DateTimeImmutable
-{
+/**
+ * Hasta cuándo se toleran fichadas sin invalidar la imputación de salida por auth.
+ * Con salida efectiva y sin regreso, el tope es la hora de regreso autorizada (o fin de turno),
+ * no la salida efectiva (evita bloquear por la propia fichada de salida).
+ *
+ * @param list<array{Entrada: string, Salida: string}> $turnos
+ */
+function asistencia_referencia_limite_posterior_auth(
+    array $authSalida,
+    array $turnos,
+    DateTimeImmutable $entradaDt,
+    string $personalId,
+    array $areasDict
+): DateTimeImmutable {
     if (!empty($authSalida['FechaHoraRegresoEfectiva'])) {
         return new DateTimeImmutable((string) $authSalida['FechaHoraRegresoEfectiva']);
     }
-    if (!empty($authSalida['FechaHoraSalidaEfectiva'])) {
-        return new DateTimeImmutable((string) $authSalida['FechaHoraSalidaEfectiva']);
-    }
     $fecha = (string) $authSalida['Fecha'];
-    $hora = substr((string) $authSalida['HoraSalida'], 0, 8);
+    if (!empty($authSalida['HoraRegreso'])) {
+        $dt = DateTimeImmutable::createFromFormat(
+            'Y-m-d H:i:s',
+            $fecha . ' ' . substr((string) $authSalida['HoraRegreso'], 0, 8)
+        );
+        if ($dt !== false) {
+            return $dt;
+        }
+    }
+    $horarioRegreso = asistencia_get_turno_salida(
+        $turnos,
+        $entradaDt,
+        $personalId,
+        $areasDict
+    );
+    $dt = DateTimeImmutable::createFromFormat(
+        'Y-m-d H:i:s',
+        $fecha . ' ' . substr($horarioRegreso, 0, 8)
+    );
+    if ($dt !== false) {
+        return $dt;
+    }
+    $hora = substr((string) ($authSalida['HoraSalida'] ?? '23:59:59'), 0, 8);
     return new DateTimeImmutable($fecha . ' ' . $hora);
 }
 
