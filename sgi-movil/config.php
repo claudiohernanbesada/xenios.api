@@ -25,8 +25,8 @@ return [
     'api_base_path' => '/sgi-movil',
     // Origen permitido en CORS (* en dev, restringir en prod)
     'cors_origin' => '*',
-    // Clave para POST /novedades (sistemas externos / administración)
-    'novedades_api_key' => getenv('SGI_NOVEDADES_API_KEY') ?: 'cambiar-clave-novedades-produccion',
+    // Clave única para endpoints de administración / sistemas externos (header X-API-KEY)
+    'api_key' => getenv('SGI_API_KEY') ?: getenv('SGI_NOVEDADES_API_KEY') ?: 'c0256d3b-8510-4a7f-af05-92b007521f23',
     'password_reset' => [
         'public_base_url' => getenv('SGI_PASSWORD_RESET_URL') ?: 'https://restartpassword.sgi.raei.com.ar',
         'api_public_url' => getenv('SGI_PASSWORD_RESET_API_URL') ?: 'https://api.raei.com.ar/sgi-movil',

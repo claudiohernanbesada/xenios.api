@@ -298,6 +298,28 @@ function normalizar_legajo_claves(int $legajo): array
     ];
 }
 
+function config_api_key(array $config): string
+{
+    return (string) ($config['api_key'] ?? $config['novedades_api_key'] ?? '');
+}
+
+/** Valida la clave de API enviada en X-API-KEY (o X-Novedades-Api-Key por compatibilidad). */
+function validar_api_key(array $config): bool
+{
+    $expected = config_api_key($config);
+    if ($expected === '') {
+        return false;
+    }
+
+    $provided = (string) (
+        $_SERVER['HTTP_X_API_KEY']
+        ?? $_SERVER['HTTP_X_NOVEDADES_API_KEY']
+        ?? ''
+    );
+
+    return $provided !== '' && hash_equals($expected, $provided);
+}
+
 // Middleware: token válido + usuario activo + permisos según rol
 function require_auth(PDO $pdo, array $config): array
 {

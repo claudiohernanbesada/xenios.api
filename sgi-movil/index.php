@@ -513,7 +513,7 @@ function handle_push_registrar_token(PDO $pdo, array $config): void
 // GET /usuarios — listado de usuarios activos con sus áreas
 function handle_usuarios_list(PDO $pdo, array $config): void
 {
-    if (novedades_validar_api_key($config)) {
+    if (validar_api_key($config)) {
         json_response(['usuarios' => usuarios_listar_activos($pdo)], 200, $config);
         return;
     }
@@ -541,7 +541,7 @@ function handle_novedades_list(PDO $pdo, array $config): void
 // POST /novedades — envía novedad (API key, no JWT de empleado)
 function handle_novedades_enviar(PDO $pdo, array $config): void
 {
-    if (!novedades_validar_api_key($config)) {
+    if (!validar_api_key($config)) {
         json_response(['message' => 'API key inválida'], 401, $config);
         return;
     }

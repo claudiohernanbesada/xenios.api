@@ -297,19 +297,3 @@ function novedades_format_datetime(string $value): string
 
     return $value;
 }
-
-function novedades_validar_api_key(array $config): bool
-{
-    $expected = (string) ($config['novedades_api_key'] ?? '');
-    if ($expected === '') {
-        return false;
-    }
-
-    $provided = (string) (
-        $_SERVER['HTTP_X_NOVEDADES_API_KEY']
-        ?? $_SERVER['HTTP_X_API_KEY']
-        ?? ''
-    );
-
-    return $provided !== '' && hash_equals($expected, $provided);
-}
