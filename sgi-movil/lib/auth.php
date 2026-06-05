@@ -151,6 +151,21 @@ function require_empleado_role(array $roles, array $config): void
     }
 }
 
+// Usuarios con solo rol EMPLEADO no pueden consultas de gestión
+function require_gestion_role(array $roles, array $config): void
+{
+    require_any_role($roles, $config);
+
+    $upper = array_map('strtoupper', $roles);
+    $onlyEmpleado = in_array('EMPLEADO', $upper, true)
+        && count(array_filter($upper, static fn ($r) => $r !== 'EMPLEADO')) === 0;
+
+    if ($onlyEmpleado) {
+        json_response(['message' => 'Sin permisos de gestión para su rol'], 403, $config);
+        exit;
+    }
+}
+
 // Empleado puede subir avatar pero no borrarlo (solo POST en /auth/avatar)
 function empleado_may_write_avatar(string $path, string $method): bool
 {
