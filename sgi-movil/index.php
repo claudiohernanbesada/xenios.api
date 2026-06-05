@@ -513,6 +513,11 @@ function handle_push_registrar_token(PDO $pdo, array $config): void
 // GET /usuarios — listado de usuarios activos con sus áreas
 function handle_usuarios_list(PDO $pdo, array $config): void
 {
+    if (novedades_validar_api_key($config)) {
+        json_response(['usuarios' => usuarios_listar_activos($pdo)], 200, $config);
+        return;
+    }
+
     $auth = require_auth($pdo, $config);
     require_gestion_role($auth['roles'], $config);
 
