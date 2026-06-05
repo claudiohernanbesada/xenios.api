@@ -14,6 +14,7 @@ require_once __DIR__ . '/lib/password_reset.php';
 require_once __DIR__ . '/lib/vacaciones.php';
 require_once __DIR__ . '/lib/auth_salida_list.php';
 require_once __DIR__ . '/lib/usuarios.php';
+require_once __DIR__ . '/lib/areas.php';
 
 $config = require __DIR__ . '/config.php';
 apply_cors($config);
@@ -57,6 +58,7 @@ try {
         $method === 'POST' && $path === '/push/registrar-token' => handle_push_registrar_token($pdo, $config),
         $method === 'GET' && $path === '/novedades' => handle_novedades_list($pdo, $config),
         $method === 'GET' && $path === '/usuarios' => handle_usuarios_list($pdo, $config),
+        $method === 'GET' && $path === '/areas' => handle_areas_list($pdo, $config),
         $method === 'POST' && $path === '/novedades' => handle_novedades_enviar($pdo, $config),
         default => handle_novedades_routes($pdo, $config, $path, $method),
     };
@@ -522,6 +524,20 @@ function handle_usuarios_list(PDO $pdo, array $config): void
     require_gestion_role($auth['roles'], $config);
 
     json_response(['usuarios' => usuarios_listar_activos($pdo)], 200, $config);
+}
+
+// GET /areas — listado de áreas activas
+function handle_areas_list(PDO $pdo, array $config): void
+{
+    if (validar_api_key($config)) {
+        json_response(['areas' => areas_listar_activas($pdo)], 200, $config);
+        return;
+    }
+
+    $auth = require_auth($pdo, $config);
+    require_gestion_role($auth['roles'], $config);
+
+    json_response(['areas' => areas_listar_activas($pdo)], 200, $config);
 }
 
 // GET /novedades — bandeja del usuario logueado
