@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-/** @return list<array{id: string, nombre: string, apellido: string, mail: string, areas: list<array{id: string, nombre: string}>}> */
+/** @return list<array{id: string, nombre: string, apellido: string, mail: string, areas: list<array{id: string, nombre: string}>, roles: list<array{id: int, nombre: string}>}> */
 function usuarios_listar_activos(PDO $pdo): array
 {
     $stmt = $pdo->query(
@@ -24,6 +24,7 @@ function usuarios_listar_activos(PDO $pdo): array
                 'apellido' => (string) $row['Apellido'],
                 'mail' => (string) $row['Mail'],
                 'areas' => [],
+                'roles' => [],
             ];
         }
 
@@ -35,6 +36,25 @@ function usuarios_listar_activos(PDO $pdo): array
         $usuarios[$id]['areas'][] = [
             'id' => $areaId,
             'nombre' => (string) $row['AreaNombre'],
+        ];
+    }
+
+    $stmtRoles = $pdo->query(
+        'SELECT ru.UsuariosId, r.Id AS RolId, r.RolName
+         FROM RolUsuario ru
+         INNER JOIN Roles r ON r.Id = ru.RolesId
+         INNER JOIN Usuarios u ON u.Id = ru.UsuariosId AND u.Estado = 1
+         ORDER BY r.RolName'
+    );
+    foreach ($stmtRoles->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $id = (string) $row['UsuariosId'];
+        if (!isset($usuarios[$id])) {
+            continue;
+        }
+
+        $usuarios[$id]['roles'][] = [
+            'id' => (int) $row['RolId'],
+            'nombre' => (string) $row['RolName'],
         ];
     }
 
