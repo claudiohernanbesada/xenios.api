@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-/** @return list<array{id: string, nombre: string, apellido: string, mail: string, areas: list<array{id: string, nombre: string}>, roles: list<array{id: int, nombre: string}>}> */
+/** @return list<array{id: string, nombre: string, apellido: string, mail: string, areas: list<array{id: string, nombre: string}>, roles: list<string>}> */
 function usuarios_listar_activos(PDO $pdo): array
 {
     $stmt = $pdo->query(
@@ -40,7 +40,7 @@ function usuarios_listar_activos(PDO $pdo): array
     }
 
     $stmtRoles = $pdo->query(
-        'SELECT ru.UsuariosId, r.Id AS RolId, r.RolName
+        'SELECT ru.UsuariosId, r.RolName
          FROM RolUsuario ru
          INNER JOIN Roles r ON r.Id = ru.RolesId
          INNER JOIN Usuarios u ON u.Id = ru.UsuariosId AND u.Estado = 1
@@ -52,10 +52,7 @@ function usuarios_listar_activos(PDO $pdo): array
             continue;
         }
 
-        $usuarios[$id]['roles'][] = [
-            'id' => (int) $row['RolId'],
-            'nombre' => (string) $row['RolName'],
-        ];
+        $usuarios[$id]['roles'][] = (string) $row['RolName'];
     }
 
     return array_values($usuarios);
