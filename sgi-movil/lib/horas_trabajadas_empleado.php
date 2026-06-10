@@ -488,7 +488,9 @@ function horas_trabajadas_calcular_extras(
     $personalId = (string) ($empleado['Id'] ?? '');
     $e50 = 0.0;
     $e100 = 0.0;
-    ht_acumular_extras_manuales($personalId, $datos['extrasManuales'], $e50, $e100);
+    if ($horasExtrasFlag) {
+        ht_acumular_extras_manuales($personalId, $datos['extrasManuales'], $e50, $e100);
+    }
 
     $porDia = [];
     foreach ($fichadasEmp as $f) {
@@ -508,7 +510,6 @@ function horas_trabajadas_calcular_extras(
             $periodo,
             $datos,
             $personalId,
-            $horasExtrasFlag,
             $areaNombre,
             $diasTrabajo,
             $e50,
@@ -519,6 +520,7 @@ function horas_trabajadas_calcular_extras(
     $e50 = (float) ht_redondear_hora_extra_completa($e50);
     $e100 = (float) ht_redondear_hora_extra_completa($e100);
 
+    // Compensación de auth. salida: siempre desde horas acumuladas en fichadas (independiente de HorasExtras).
     $deuda = $minutosAuth;
     $comp = min($e50, $deuda);
     $e50 -= $comp;
@@ -527,6 +529,11 @@ function horas_trabajadas_calcular_extras(
         $c2 = min($e100, $deuda);
         $e100 -= $c2;
         $comp += $c2;
+    }
+
+    if (!$horasExtrasFlag) {
+        $e50 = 0.0;
+        $e100 = 0.0;
     }
 
     return [$e50, $e100, $comp];
@@ -540,7 +547,6 @@ function ht_procesar_grupo_dia_fichadas(
     array $periodo,
     array $datos,
     string $personalId,
-    bool $horasExtrasFlag,
     string $areaNombre,
     array &$diasTrabajo,
     float &$e50,
@@ -560,18 +566,14 @@ function ht_procesar_grupo_dia_fichadas(
 
     $dow = (int) $dia->format('w');
     if ($dow === 0 || $dow === 6) {
-        if ($horasExtrasFlag) {
-            ht_acumular_extras_segun_franja($entrada, $salida, $e50, $e100);
-        }
+        ht_acumular_extras_segun_franja($entrada, $salida, $e50, $e100);
         return;
     }
 
     if ($dow === 1 && $entrada->format('H:i:s') < HT_FIN_EXTRA_LUNES) {
         $corte = $dia->setTime(4, 0);
         $finTramo = $salida < $corte ? $salida : $corte;
-        if ($horasExtrasFlag) {
-            ht_acumular_extras_segun_franja($entrada, $finTramo, $e50, $e100);
-        }
+        ht_acumular_extras_segun_franja($entrada, $finTramo, $e50, $e100);
         if ($salida <= $corte) {
             return;
         }
@@ -612,7 +614,7 @@ function ht_procesar_grupo_dia_fichadas(
     if ($dow === 5 && $minutosNormalesHoy > 480) {
         $minutosExtra = $minutosNormalesHoy - 480;
         $minutosNormalesHoy = 480.0;
-        if ($minutosExtra >= 60 && $horasExtrasFlag) {
+        if ($minutosExtra >= 60) {
             $e50 += (int) ($minutosExtra / 60) * 60;
         }
     }
@@ -630,14 +632,12 @@ function ht_procesar_grupo_dia_fichadas(
         $diasTrabajo[$fechaKey] = true;
     }
 
-    if ($horasExtrasFlag) {
-        $limite = $dow === 6 ? HT_LIMITE_EXTRA_SABADO : HT_LIMITE_EXTRA_SEMANA;
-        if ($entrada < $iniAsig) {
-            ht_acumular_extra_por_horario($entrada, $iniAsig, $limite, $e50, $e100);
-        }
-        if ($salida > $finAsig) {
-            ht_acumular_extra_por_horario($finAsig, $salida, $limite, $e50, $e100);
-        }
+    $limite = $dow === 6 ? HT_LIMITE_EXTRA_SABADO : HT_LIMITE_EXTRA_SEMANA;
+    if ($entrada < $iniAsig) {
+        ht_acumular_extra_por_horario($entrada, $iniAsig, $limite, $e50, $e100);
+    }
+    if ($salida > $finAsig) {
+        ht_acumular_extra_por_horario($finAsig, $salida, $limite, $e50, $e100);
     }
 }
 
