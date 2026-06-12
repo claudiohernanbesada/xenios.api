@@ -47,6 +47,7 @@ function horas_trabajadas_enriquecer_personal(PDO $pdo, array $personal): array
 
     $stmt = $pdo->prepare(
         'SELECT p.Id, p.Legajo, p.Nombre, p.Apellido, p.Foto, p.Estado, p.FechaBaja,
+                p.HorarioIngreso, p.HorarioSalida,
                 p.HorasExtras, p.TipoContratacionId, tc.NombreTipoContratacion,
                 a.Nombre AS AreaNombre
          FROM Personal p
@@ -67,6 +68,8 @@ function horas_trabajadas_enriquecer_personal(PDO $pdo, array $personal): array
         'Foto' => (string) ($row['Foto'] ?? ''),
         'Estado' => (int) ($row['Estado'] ?? $personal['Estado'] ?? 1),
         'FechaBaja' => $row['FechaBaja'] ?? $personal['FechaBaja'] ?? null,
+        'HorarioIngreso' => $row['HorarioIngreso'] ?? $personal['HorarioIngreso'] ?? null,
+        'HorarioSalida' => $row['HorarioSalida'] ?? $personal['HorarioSalida'] ?? null,
         'HorasExtras' => (bool) ($row['HorasExtras'] ?? false),
         'TipoContratacionId' => (int) ($row['TipoContratacionId'] ?? 0),
         'TipoContratacionNombre' => (string) ($row['NombreTipoContratacion'] ?? ''),
@@ -438,6 +441,8 @@ function horas_trabajadas_calcular_minutos_auth(array $empleado, array $datos): 
 {
     $personalId = (string) ($empleado['Id'] ?? '');
     $areaNombre = (string) ($empleado['AreaNombre'] ?? $empleado['Area'] ?? '');
+    $horarioIngreso = $empleado['HorarioIngreso'] ?? null;
+    $horarioSalida = $empleado['HorarioSalida'] ?? null;
     if ($personalId === '' || !isset($datos['authPorPersonal'][$personalId])) {
         return 0.0;
     }
@@ -461,7 +466,9 @@ function horas_trabajadas_calcular_minutos_auth(array $empleado, array $datos): 
                 $fecha,
                 $salidaTs,
                 ht_time_to_seconds(substr((string) $a['HoraRegreso'], 0, 8)),
-                $areaNombre
+                $areaNombre,
+                is_string($horarioIngreso) ? $horarioIngreso : null,
+                is_string($horarioSalida) ? $horarioSalida : null
             );
         }
 

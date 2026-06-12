@@ -254,7 +254,8 @@ function fetch_personal_by_mail(PDO $pdo, string $mail): ?array
 function fetch_personal_empleado_completo(PDO $pdo, string $mail): ?array
 {
     $stmt = $pdo->prepare(
-        'SELECT p.Id, p.Legajo, p.Nombre, p.Apellido, p.Estado, p.FechaBaja, a.Nombre AS AreaNombre
+        'SELECT p.Id, p.Legajo, p.Nombre, p.Apellido, p.Estado, p.FechaBaja,
+                p.HorarioIngreso, p.HorarioSalida, a.Nombre AS AreaNombre
          FROM Personal p
          LEFT JOIN Area a ON a.Id = p.ArealId
          WHERE p.Estado IN (1, 2)
