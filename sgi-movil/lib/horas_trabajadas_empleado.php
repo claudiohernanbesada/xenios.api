@@ -330,6 +330,8 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
         $periodo['hoy'],
         $personalId,
         $areaNombre,
+        $empleado['HorarioIngreso'] ?? null,
+        $empleado['HorarioSalida'] ?? null,
         $datos['authSalidaLookup'],
         $datos['licenciasLookup']
     )) {
@@ -495,6 +497,7 @@ function horas_trabajadas_calcular_extras(
     $personalId = (string) ($empleado['Id'] ?? '');
     $e50 = 0.0;
     $e100 = 0.0;
+    $compensable = 0.0;
     if ($horasExtrasFlag) {
         ht_acumular_extras_manuales($personalId, $datos['extrasManuales'], $e50, $e100);
     }
@@ -509,6 +512,11 @@ function horas_trabajadas_calcular_extras(
         usort($grupo, static fn ($a, $b) => $a['Fecha'] <=> $b['Fecha']);
         $entrada = $grupo[0]['Fecha'];
         $salida = $grupo[count($grupo) - 1]['Fecha'];
+        $authsDia = ht_auths_dia($datos, $personalId, $fechaKey);
+        $inicioAuthPosterior = ht_inicio_auth_posterior($authsDia, $entrada);
+        if ($inicioAuthPosterior !== null && $inicioAuthPosterior > $salida) {
+            $salida = $inicioAuthPosterior;
+        }
         ht_procesar_grupo_dia_fichadas(
             $fechaKey,
             $entrada,
@@ -516,26 +524,31 @@ function horas_trabajadas_calcular_extras(
             count($grupo),
             $periodo,
             $datos,
-            $personalId,
-            $areaNombre,
+            $empleado,
+            $authsDia,
             $diasTrabajo,
             $e50,
-            $e100
+            $e100,
+            $compensable,
+            $inicioAuthPosterior !== null
         );
     }
 
     $e50 = (float) ht_redondear_hora_extra_completa($e50);
     $e100 = (float) ht_redondear_hora_extra_completa($e100);
+    $compensable = (float) ht_redondear_hora_extra_completa($compensable);
 
     // Compensación de auth. salida: siempre desde horas acumuladas en fichadas (independiente de HorasExtras).
     $deuda = $minutosAuth;
-    $comp = min($e50, $deuda);
-    $e50 -= $comp;
-    $deuda -= $comp;
-    if ($deuda > 0) {
-        $c2 = min($e100, $deuda);
-        $e100 -= $c2;
-        $comp += $c2;
+    $comp = min($compensable, $deuda);
+
+    if ($horasExtrasFlag && $comp > 0) {
+        $descuento50 = min($e50, $comp);
+        $e50 -= $descuento50;
+        $pendienteDescuento = $comp - $descuento50;
+        if ($pendienteDescuento > 0) {
+            $e100 -= min($e100, $pendienteDescuento);
+        }
     }
 
     if (!$horasExtrasFlag) {
@@ -553,12 +566,19 @@ function ht_procesar_grupo_dia_fichadas(
     int $cantidadFichadas,
     array $periodo,
     array $datos,
-    string $personalId,
-    string $areaNombre,
+    array $empleado,
+    array $authsDia,
     array &$diasTrabajo,
     float &$e50,
-    float &$e100
+    float &$e100,
+    float &$compensable,
+    bool $tieneAuthPosterior
 ): void {
+    $personalId = (string) ($empleado['Id'] ?? '');
+    $areaNombre = (string) ($empleado['AreaNombre'] ?? $empleado['Area'] ?? '');
+    $horarioIngreso = is_string($empleado['HorarioIngreso'] ?? null) ? $empleado['HorarioIngreso'] : null;
+    $horarioSalida = is_string($empleado['HorarioSalida'] ?? null) ? $empleado['HorarioSalida'] : null;
+
     if (isset($datos['feriados'][$fechaKey])) {
         return;
     }
@@ -567,12 +587,13 @@ function ht_procesar_grupo_dia_fichadas(
     $hoyStr = $periodo['hoy']->format('Y-m-d');
     $diffMin = ($salida->getTimestamp() - $entrada->getTimestamp()) / 60.0;
 
-    if ($diffMin < 30 && $fechaKey !== $hoyStr) {
+    if ($diffMin < 30 && !$tieneAuthPosterior && $fechaKey !== $hoyStr) {
         return;
     }
 
     $dow = (int) $dia->format('w');
     if ($dow === 0 || $dow === 6) {
+        ht_acumular_tiempo_compensable($entrada, $salida, $compensable);
         ht_acumular_extras_segun_franja($entrada, $salida, $e50, $e100);
         return;
     }
@@ -580,6 +601,7 @@ function ht_procesar_grupo_dia_fichadas(
     if ($dow === 1 && $entrada->format('H:i:s') < HT_FIN_EXTRA_LUNES) {
         $corte = $dia->setTime(4, 0);
         $finTramo = $salida < $corte ? $salida : $corte;
+        ht_acumular_tiempo_compensable($entrada, $finTramo, $compensable);
         ht_acumular_extras_segun_franja($entrada, $finTramo, $e50, $e100);
         if ($salida <= $corte) {
             return;
@@ -587,7 +609,7 @@ function ht_procesar_grupo_dia_fichadas(
         $entrada = $corte;
     }
 
-    $turno = ht_obtener_turno_asignado($datos['turnos'], $entrada, $salida, $dia, $areaNombre);
+    $turno = ht_obtener_turno_asignado($datos['turnos'], $entrada, $salida, $dia, $areaNombre, $horarioIngreso, $horarioSalida);
     if ($turno['turno'] === null) {
         return;
     }
@@ -617,6 +639,17 @@ function ht_procesar_grupo_dia_fichadas(
         $tiempoSeg += 15 * 60;
     }
     $minutosNormalesHoy = $tiempoSeg / 60.0;
+    $minutosNormalesHoy += ht_minutos_cubiertos_por_auth_hasta_fin_turno(
+        $authsDia,
+        $datos['turnos'],
+        $iniAsig,
+        $finAsig,
+        $inicioNormal,
+        $finNormal,
+        $areaNombre,
+        $horarioIngreso,
+        $horarioSalida
+    );
 
     if ($dow === 5 && $minutosNormalesHoy > 480) {
         $minutosExtra = $minutosNormalesHoy - 480;
@@ -642,10 +675,119 @@ function ht_procesar_grupo_dia_fichadas(
     $limite = $dow === 6 ? HT_LIMITE_EXTRA_SABADO : HT_LIMITE_EXTRA_SEMANA;
     if ($entrada < $iniAsig) {
         ht_acumular_extra_por_horario($entrada, $iniAsig, $limite, $e50, $e100);
+        ht_acumular_tiempo_compensable($entrada, $iniAsig, $compensable);
     }
     if ($salida > $finAsig) {
         ht_acumular_extra_por_horario($finAsig, $salida, $limite, $e50, $e100);
+        ht_acumular_tiempo_compensable($finAsig, $salida, $compensable);
     }
+}
+
+function ht_auths_dia(array $datos, string $personalId, string $fechaKey): array
+{
+    $auths = $datos['authPorPersonal'][$personalId] ?? [];
+    return array_values(array_filter($auths, static fn (array $a): bool => (string) $a['Fecha'] === $fechaKey));
+}
+
+function ht_inicio_auth_posterior(array $authsDia, DateTimeImmutable $entrada): ?DateTimeImmutable
+{
+    $posteriores = [];
+    foreach ($authsDia as $a) {
+        $salida = !empty($a['FechaHoraSalidaEfectiva'])
+            ? new DateTimeImmutable((string) $a['FechaHoraSalidaEfectiva'])
+            : new DateTimeImmutable((string) $a['Fecha'] . ' ' . substr((string) $a['HoraSalida'], 0, 8));
+
+        if ($salida > $entrada) {
+            $posteriores[] = $salida;
+        }
+    }
+
+    usort($posteriores, static fn (DateTimeImmutable $a, DateTimeImmutable $b): int => $a <=> $b);
+    return $posteriores[0] ?? null;
+}
+
+function ht_minutos_cubiertos_por_auth_hasta_fin_turno(
+    array $authsDia,
+    array $turnos,
+    DateTimeImmutable $inicioTurno,
+    DateTimeImmutable $finTurno,
+    DateTimeImmutable $inicioNormal,
+    DateTimeImmutable $finNormal,
+    string $areaNombre,
+    ?string $horarioIngreso,
+    ?string $horarioSalida
+): float {
+    $intervalos = [[$inicioNormal, $finNormal]];
+
+    foreach ($authsDia as $a) {
+        $fecha = new DateTimeImmutable((string) $a['Fecha']);
+        $salida = !empty($a['FechaHoraSalidaEfectiva'])
+            ? new DateTimeImmutable((string) $a['FechaHoraSalidaEfectiva'])
+            : new DateTimeImmutable((string) $a['Fecha'] . ' ' . substr((string) $a['HoraSalida'], 0, 8));
+
+        if (!empty($a['FechaHoraRegresoEfectiva'])) {
+            $regreso = new DateTimeImmutable((string) $a['FechaHoraRegresoEfectiva']);
+        } else {
+            $regresoSec = ht_obtener_regreso_por_fin_de_turno(
+                $turnos,
+                $fecha,
+                ht_segundos_del_dia($salida),
+                ht_time_to_seconds(substr((string) $a['HoraRegreso'], 0, 8)),
+                $areaNombre,
+                $horarioIngreso,
+                $horarioSalida
+            );
+            $regreso = $fecha->setTime(0, 0)->modify('+' . $regresoSec . ' seconds');
+            if ($regreso <= $salida) {
+                $regreso = $regreso->modify('+1 day');
+            }
+        }
+
+        $inicio = $salida < $inicioTurno ? $inicioTurno : $salida;
+        $fin = $regreso > $finTurno ? $finTurno : $regreso;
+
+        if ($regreso >= $finTurno && $fin > $inicio) {
+            $intervalos[] = [$inicio, $fin];
+        }
+    }
+
+    $normal = max(0.0, ($finNormal->getTimestamp() - $inicioNormal->getTimestamp()) / 60.0);
+    $cubierto = ht_sumar_intervalos_minutos($intervalos);
+    return max(0.0, $cubierto - $normal);
+}
+
+function ht_sumar_intervalos_minutos(array $intervalos): float
+{
+    $validos = array_values(array_filter($intervalos, static fn (array $i): bool => $i[1] > $i[0]));
+    usort($validos, static fn (array $a, array $b): int => $a[0] <=> $b[0]);
+
+    if ($validos === []) {
+        return 0.0;
+    }
+
+    $minutos = 0.0;
+    [$inicioActual, $finActual] = $validos[0];
+
+    foreach (array_slice($validos, 1) as [$inicio, $fin]) {
+        if ($inicio <= $finActual) {
+            if ($fin > $finActual) {
+                $finActual = $fin;
+            }
+            continue;
+        }
+
+        $minutos += ($finActual->getTimestamp() - $inicioActual->getTimestamp()) / 60.0;
+        $inicioActual = $inicio;
+        $finActual = $fin;
+    }
+
+    $minutos += ($finActual->getTimestamp() - $inicioActual->getTimestamp()) / 60.0;
+    return $minutos;
+}
+
+function ht_segundos_del_dia(DateTimeImmutable $dt): int
+{
+    return (int) $dt->format('H') * 3600 + (int) $dt->format('i') * 60 + (int) $dt->format('s');
 }
 
 function ht_tiene_fichada_incompleta(
@@ -655,6 +797,8 @@ function ht_tiene_fichada_incompleta(
     DateTimeImmutable $hoy,
     string $personalId,
     string $areaNombre,
+    mixed $horarioIngreso,
+    mixed $horarioSalida,
     array $authSalidaLookup,
     array $licenciasLookup
 ): bool {
@@ -701,7 +845,15 @@ function ht_tiene_fichada_incompleta(
             continue;
         }
 
-        $turno = ht_obtener_turno_asignado($turnos, $entradaDia, $salidaDia, $entradaDia, $areaNombre);
+        $turno = ht_obtener_turno_asignado(
+            $turnos,
+            $entradaDia,
+            $salidaDia,
+            $entradaDia,
+            $areaNombre,
+            is_string($horarioIngreso) ? $horarioIngreso : null,
+            is_string($horarioSalida) ? $horarioSalida : null
+        );
         if ($turno['turno'] === null) {
             continue;
         }
@@ -974,6 +1126,14 @@ function ht_acumular_extra_por_horario(
     $extra100 += ht_redondear_hora_extra_completa(ht_minutos_sin_segundos($corte, $finExtra));
 }
 
+function ht_acumular_tiempo_compensable(
+    DateTimeImmutable $inicio,
+    DateTimeImmutable $fin,
+    float &$compensable
+): void {
+    $compensable += ht_redondear_hora_extra_completa(ht_minutos_sin_segundos($inicio, $fin));
+}
+
 function ht_minutos_sin_segundos(DateTimeImmutable $inicio, DateTimeImmutable $fin): float
 {
     $i = $inicio->setTime((int) $inicio->format('H'), (int) $inicio->format('i'), 0);
@@ -1000,12 +1160,29 @@ function ht_redondear_auth_minutos(int $minutos): int
     return (int) ceil($minutos / 60.0) * 60;
 }
 
+function ht_parse_horario_empleado(?string $horario): ?string
+{
+    $horario = trim((string) $horario);
+    if ($horario === '') {
+        return null;
+    }
+
+    $dt = DateTimeImmutable::createFromFormat('!H:i', $horario)
+        ?: DateTimeImmutable::createFromFormat('!G:i', $horario)
+        ?: DateTimeImmutable::createFromFormat('!H:i:s', $horario)
+        ?: DateTimeImmutable::createFromFormat('!G:i:s', $horario);
+
+    return $dt instanceof DateTimeImmutable ? $dt->format('H:i:s') : null;
+}
+
 function ht_obtener_turno_asignado(
     array $turnos,
     DateTimeImmutable $entrada,
     DateTimeImmutable $salida,
     DateTimeImmutable $dia,
-    string $areaNombre
+    string $areaNombre,
+    ?string $horarioIngreso = null,
+    ?string $horarioSalida = null
 ): array {
     $turnoAsignado = null;
     $menorDif = PHP_FLOAT_MAX;
@@ -1013,22 +1190,37 @@ function ht_obtener_turno_asignado(
     $finAsig = null;
     $esLogistica = ht_es_area_logistica($areaNombre);
     $esViernes = (int) $dia->format('w') === 5;
+    $ingresoEmpleado = ht_parse_horario_empleado($horarioIngreso);
+    $salidaEmpleado = ht_parse_horario_empleado($horarioSalida);
+
+    if ($ingresoEmpleado !== null && $salidaEmpleado !== null) {
+        foreach ($turnos as $t) {
+            if (!$esLogistica && ht_es_turno_logistica($t)) {
+                continue;
+            }
+
+            if ($t['Entrada'] !== $ingresoEmpleado || $t['Salida'] !== $salidaEmpleado) {
+                continue;
+            }
+
+            $horario = ht_obtener_horario_evaluacion_turno($t, $esViernes);
+            $ini = ht_fecha_con_hora($dia, $horario['Entrada']);
+            $fin = ht_fecha_con_hora($dia, $horario['Salida']);
+            if ($fin <= $ini) {
+                $fin = $fin->modify('+1 day');
+            }
+
+            return ['turno' => $t, 'inicio' => $ini, 'fin' => $fin];
+        }
+    }
 
     foreach ($turnos as $t) {
         if (!$esLogistica && ht_es_turno_logistica($t)) {
             continue;
         }
         $horario = ht_obtener_horario_evaluacion_turno($t, $esViernes);
-        $ini = $dia->setTime(
-            (int) substr($horario['Entrada'], 0, 2),
-            (int) substr($horario['Entrada'], 3, 2),
-            (int) substr($horario['Entrada'], 6, 2)
-        );
-        $fin = $dia->setTime(
-            (int) substr($horario['Salida'], 0, 2),
-            (int) substr($horario['Salida'], 3, 2),
-            (int) substr($horario['Salida'], 6, 2)
-        );
+        $ini = ht_fecha_con_hora($dia, $horario['Entrada']);
+        $fin = ht_fecha_con_hora($dia, $horario['Salida']);
         if ($fin <= $ini) {
             $fin = $fin->modify('+1 day');
         }
@@ -1047,12 +1239,23 @@ function ht_obtener_turno_asignado(
     return ['turno' => $turnoAsignado, 'inicio' => $iniAsig, 'fin' => $finAsig];
 }
 
+function ht_fecha_con_hora(DateTimeImmutable $fecha, string $hora): DateTimeImmutable
+{
+    return $fecha->setTime(
+        (int) substr($hora, 0, 2),
+        (int) substr($hora, 3, 2),
+        (int) substr($hora, 6, 2)
+    );
+}
+
 function ht_obtener_regreso_por_fin_de_turno(
     array $turnos,
     DateTimeImmutable $fecha,
     int $salidaAutorizadaSec,
     int $regresoInformadoSec,
-    string $areaNombre
+    string $areaNombre,
+    ?string $horarioIngreso = null,
+    ?string $horarioSalida = null
 ): int
 {
     $dia = $fecha->setTime(0, 0);
@@ -1064,7 +1267,7 @@ function ht_obtener_regreso_por_fin_de_turno(
 
     $entradaDt = (new DateTimeImmutable())->setTimestamp($entradaReferencia);
     $salidaDt = (new DateTimeImmutable())->setTimestamp($salidaReferencia);
-    $turno = ht_obtener_turno_asignado($turnos, $entradaDt, $salidaDt, $fecha, $areaNombre);
+    $turno = ht_obtener_turno_asignado($turnos, $entradaDt, $salidaDt, $fecha, $areaNombre, $horarioIngreso, $horarioSalida);
     if ($turno['fin'] === null) {
         return $regresoInformadoSec;
     }
