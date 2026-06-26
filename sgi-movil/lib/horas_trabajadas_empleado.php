@@ -881,32 +881,7 @@ function ht_tiene_fichada_incompleta(
         $salidaDia = $dia[count($dia) - 1]['Fecha'];
         $diff = ($salidaDia->getTimestamp() - $entradaDia->getTimestamp()) / 60.0;
 
-        if (count($dia) === 1 || $diff < 30) {
-            return true;
-        }
-
-        $dow = (int) $entradaDia->format('w');
-        if ($dow === 0 || $dow === 6) {
-            continue;
-        }
-
-        $turno = ht_obtener_turno_asignado(
-            $turnos,
-            $entradaDia,
-            $salidaDia,
-            $entradaDia,
-            $areaNombre,
-            is_string($horarioIngreso) ? $horarioIngreso : null,
-            is_string($horarioSalida) ? $horarioSalida : null
-        );
-        if ($turno['turno'] === null) {
-            continue;
-        }
-
-        if (($entradaDia->getTimestamp() - $turno['inicio']->getTimestamp()) / 60.0 >= HT_TOLERANCIA_FICHADA_FALTANTE) {
-            return true;
-        }
-        if (($turno['fin']->getTimestamp() - $salidaDia->getTimestamp()) / 60.0 >= HT_TOLERANCIA_FICHADA_FALTANTE) {
+        if (count($dia) === 1 || $diff < 5) {
             return true;
         }
     }
