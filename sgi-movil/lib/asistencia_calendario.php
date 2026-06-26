@@ -475,12 +475,26 @@ function asistencia_clasificar_fichadas_por_turno(
     string $personaId,
     array $areasDict
 ): array {
+    usort($fichadas, static fn ($a, $b) => $a['Fecha'] <=> $b['Fecha']);
     if ($fichadas === []) {
         return [
             'Entrada' => null,
             'Salida' => null,
             'EsManualEntrada' => false,
             'EsManualSalida' => false,
+        ];
+    }
+
+    if (count($fichadas) > 1) {
+        $entrada = $fichadas[0];
+        $salida = $fichadas[count($fichadas) - 1];
+        $diferenciaMinutos = ($salida['Fecha']->getTimestamp() - $entrada['Fecha']->getTimestamp()) / 60.0;
+
+        return [
+            'Entrada' => $entrada['Fecha'],
+            'Salida' => $diferenciaMinutos >= 5 ? $salida['Fecha'] : null,
+            'EsManualEntrada' => $entrada['EsCargaManual'],
+            'EsManualSalida' => $diferenciaMinutos >= 5 && $salida['EsCargaManual'],
         ];
     }
 
