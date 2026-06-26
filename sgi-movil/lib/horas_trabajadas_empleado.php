@@ -142,9 +142,11 @@ function horas_trabajadas_cargar_datos(PDO $pdo, array $empleado, array $periodo
     $authSalidaLookup = [];
     if ($personalId !== '') {
         $stmt = $pdo->prepare(
-            'SELECT Fecha, HoraSalida, HoraRegreso, FechaHoraSalidaEfectiva, FechaHoraRegresoEfectiva
-             FROM AuthSalida
-             WHERE Estado = 1 AND PersonalId = :pid AND Fecha >= :d AND Fecha <= :h'
+            'SELECT a.Fecha, a.HoraSalida, a.HoraRegreso, a.FechaHoraSalidaEfectiva, a.FechaHoraRegresoEfectiva,
+                    COALESCE(m.RequiereRecupero, 1) AS RequiereRecupero
+             FROM AuthSalida a
+             LEFT JOIN AuthSalidaMotivos m ON m.Id = a.MotivoId
+             WHERE a.Estado = 1 AND a.PersonalId = :pid AND a.Fecha >= :d AND a.Fecha <= :h'
         );
         $stmt->execute(['pid' => $personalId, 'd' => $desde, 'h' => $hasta]);
         $auths = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -252,7 +254,6 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
 {
     $personalId = (string) ($empleado['Id'] ?? '');
     $tipoNombre = (string) ($empleado['TipoContratacionNombre'] ?? '');
-    $esMensualQuincenal = ht_es_mensual_o_quincenal($tipoNombre);
     $esQuincenal = ht_es_quincenal($tipoNombre);
     $areaNombre = (string) ($empleado['AreaNombre'] ?? $empleado['Area'] ?? '');
     $horasExtrasFlag = (bool) ($empleado['HorasExtras'] ?? false);
@@ -260,7 +261,20 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
     $minutosAuth = horas_trabajadas_calcular_minutos_auth($empleado, $datos);
 
     $diasTrabajo = [];
-    ht_agregar_feriados_habiles_periodo($diasTrabajo, $datos['feriados'], $periodo['desde'], $periodo['hasta']);
+    if ($esQuincenal) {
+        ht_agregar_feriados_habiles_periodo($diasTrabajo, $datos['feriados'], $periodo['desde'], $periodo['hasta']);
+    }
+    ht_agregar_feriados_fin_de_semana_quincenal(
+        $diasTrabajo,
+        $datos['feriados'],
+        $periodo['desde'],
+        $periodo['hasta'],
+        $esQuincenal,
+        $personalId,
+        $datos['licenciasCgs'],
+        $datos['vacaciones'],
+        $datos['ausenciasResta']
+    );
     ht_quitar_feriados_habiles_cubiertos_por_licencia(
         $diasTrabajo,
         $datos['feriados'],
@@ -301,7 +315,7 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
             $datos['feriados'],
             $periodo['desde'],
             $periodo['hasta'],
-            $esMensualQuincenal,
+            $esQuincenal,
             $personalId,
             $datos['licenciasCgs'],
             $datos['vacaciones'],
@@ -354,7 +368,7 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
         $datos['feriados'],
         $periodo['desde'],
         $periodo['hasta'],
-        $esMensualQuincenal,
+        $esQuincenal,
         $personalId,
         $datos['licenciasCgs'],
         $datos['vacaciones'],
@@ -451,6 +465,10 @@ function horas_trabajadas_calcular_minutos_auth(array $empleado, array $datos): 
 
     $minutosAuth = 0.0;
     foreach ($datos['authPorPersonal'][$personalId] as $a) {
+        if (!filter_var($a['RequiereRecupero'] ?? true, FILTER_VALIDATE_BOOLEAN)) {
+            continue;
+        }
+
         if (!empty($a['FechaHoraSalidaEfectiva'])) {
             $salida = new DateTimeImmutable((string) $a['FechaHoraSalidaEfectiva']);
             $salidaTs = (int) $salida->format('H') * 3600 + (int) $salida->format('i') * 60;
@@ -463,6 +481,7 @@ function horas_trabajadas_calcular_minutos_auth(array $empleado, array $datos): 
             $regresoTs = (int) $regreso->format('H') * 3600 + (int) $regreso->format('i') * 60;
         } else {
             $fecha = new DateTimeImmutable((string) $a['Fecha']);
+            $fichadasDia = ht_obtener_entrada_salida_real_dia($datos['fichadas'], $fecha);
             $regresoTs = ht_obtener_regreso_por_fin_de_turno(
                 $datos['turnos'],
                 $fecha,
@@ -470,11 +489,13 @@ function horas_trabajadas_calcular_minutos_auth(array $empleado, array $datos): 
                 ht_time_to_seconds(substr((string) $a['HoraRegreso'], 0, 8)),
                 $areaNombre,
                 is_string($horarioIngreso) ? $horarioIngreso : null,
-                is_string($horarioSalida) ? $horarioSalida : null
+                is_string($horarioSalida) ? $horarioSalida : null,
+                $fichadasDia['entrada'],
+                $fichadasDia['salida']
             );
         }
 
-        $minutosAuth += max(0.0, ($regresoTs - $salidaTs) / 60.0);
+        $minutosAuth += ht_redondear_auth_minutos((int) max(0.0, ($regresoTs - $salidaTs) / 60.0));
     }
 
     return $minutosAuth;
@@ -667,8 +688,7 @@ function ht_procesar_grupo_dia_fichadas(
         $datos['ausenciasResta']
     );
 
-    $umbral = $dow === 5 ? 480.0 : 540.0;
-    if (!$diaExcluido && $minutosNormalesHoy >= $umbral) {
+    if (!$diaExcluido && $minutosNormalesHoy > 0) {
         $diasTrabajo[$fechaKey] = true;
     }
 
@@ -735,7 +755,9 @@ function ht_minutos_cubiertos_por_auth_hasta_fin_turno(
                 ht_time_to_seconds(substr((string) $a['HoraRegreso'], 0, 8)),
                 $areaNombre,
                 $horarioIngreso,
-                $horarioSalida
+                $horarioSalida,
+                $inicioTurno,
+                $finTurno
             );
             $regreso = $fecha->setTime(0, 0)->modify('+' . $regresoSec . ' seconds');
             if ($regreso <= $salida) {
@@ -788,6 +810,29 @@ function ht_sumar_intervalos_minutos(array $intervalos): float
 function ht_segundos_del_dia(DateTimeImmutable $dt): int
 {
     return (int) $dt->format('H') * 3600 + (int) $dt->format('i') * 60 + (int) $dt->format('s');
+}
+
+function ht_obtener_entrada_salida_real_dia(array $fichadasEmp, DateTimeImmutable $fecha): array
+{
+    $fechaKey = $fecha->format('Y-m-d');
+    $dia = [];
+    foreach ($fichadasEmp as $f) {
+        if ($f['Fecha']->format('Y-m-d') === $fechaKey) {
+            $dia[] = $f['Fecha'];
+        }
+    }
+
+    if (count($dia) < 2) {
+        return ['entrada' => null, 'salida' => null];
+    }
+
+    usort($dia, static fn (DateTimeImmutable $a, DateTimeImmutable $b): int => $a <=> $b);
+    $entrada = $dia[0];
+    $salida = $dia[count($dia) - 1];
+
+    return (($salida->getTimestamp() - $entrada->getTimestamp()) / 60.0) >= 5
+        ? ['entrada' => $entrada, 'salida' => $salida]
+        : ['entrada' => null, 'salida' => null];
 }
 
 function ht_tiene_fichada_incompleta(
@@ -912,7 +957,7 @@ function ht_calcular_dias_vacaciones(
 ): int {
     $total = 0;
     foreach ($vacaciones as $lic) {
-        $total += ht_contar_dias_habiles($lic['DesdeDate'], $lic['HastaDate']);
+        $total += (int) $lic['HastaDate']->diff($lic['DesdeDate'])->days + 1;
     }
     return $total;
 }
@@ -986,6 +1031,38 @@ function ht_agregar_feriados_habiles_periodo(
         if ($dow !== 0 && $dow !== 6) {
             $destino[$fechaStr] = true;
         }
+    }
+}
+
+function ht_agregar_feriados_fin_de_semana_quincenal(
+    array &$destino,
+    array $feriados,
+    DateTimeImmutable $desde,
+    DateTimeImmutable $hasta,
+    bool $aplicar,
+    string $personalId,
+    array $licenciasCgs,
+    array $vacaciones,
+    array $ausenciasResta
+): void {
+    if (!$aplicar) {
+        return;
+    }
+
+    foreach (array_keys($feriados) as $fechaStr) {
+        $f = new DateTimeImmutable($fechaStr);
+        if ($f < $desde || $f > $hasta) {
+            continue;
+        }
+        $dow = (int) $f->format('w');
+        if ($dow !== 0 && $dow !== 6) {
+            continue;
+        }
+        if (ht_dia_excluido_por_licencia_formal($personalId, $fechaStr, $licenciasCgs, $vacaciones, $ausenciasResta)) {
+            continue;
+        }
+
+        $destino[$fechaStr] = true;
     }
 }
 
@@ -1192,27 +1269,7 @@ function ht_obtener_turno_asignado(
     $esViernes = (int) $dia->format('w') === 5;
     $ingresoEmpleado = ht_parse_horario_empleado($horarioIngreso);
     $salidaEmpleado = ht_parse_horario_empleado($horarioSalida);
-
-    if ($ingresoEmpleado !== null && $salidaEmpleado !== null) {
-        foreach ($turnos as $t) {
-            if (!$esLogistica && ht_es_turno_logistica($t)) {
-                continue;
-            }
-
-            if ($t['Entrada'] !== $ingresoEmpleado || $t['Salida'] !== $salidaEmpleado) {
-                continue;
-            }
-
-            $horario = ht_obtener_horario_evaluacion_turno($t, $esViernes);
-            $ini = ht_fecha_con_hora($dia, $horario['Entrada']);
-            $fin = ht_fecha_con_hora($dia, $horario['Salida']);
-            if ($fin <= $ini) {
-                $fin = $fin->modify('+1 day');
-            }
-
-            return ['turno' => $t, 'inicio' => $ini, 'fin' => $fin];
-        }
-    }
+    $mejorCoincideHorarioEmpleado = false;
 
     foreach ($turnos as $t) {
         if (!$esLogistica && ht_es_turno_logistica($t)) {
@@ -1227,12 +1284,17 @@ function ht_obtener_turno_asignado(
 
         $dif = abs(($entrada->getTimestamp() - $ini->getTimestamp()) / 60)
             + abs(($salida->getTimestamp() - $fin->getTimestamp()) / 60);
+        $coincideHorarioEmpleado = $ingresoEmpleado !== null
+            && $salidaEmpleado !== null
+            && $t['Entrada'] === $ingresoEmpleado
+            && $t['Salida'] === $salidaEmpleado;
 
-        if ($dif < $menorDif) {
+        if ($dif < $menorDif || ($dif === $menorDif && $coincideHorarioEmpleado && !$mejorCoincideHorarioEmpleado)) {
             $menorDif = $dif;
             $turnoAsignado = $t;
             $iniAsig = $ini;
             $finAsig = $fin;
+            $mejorCoincideHorarioEmpleado = $coincideHorarioEmpleado;
         }
     }
 
@@ -1255,7 +1317,9 @@ function ht_obtener_regreso_por_fin_de_turno(
     int $regresoInformadoSec,
     string $areaNombre,
     ?string $horarioIngreso = null,
-    ?string $horarioSalida = null
+    ?string $horarioSalida = null,
+    ?DateTimeImmutable $entradaRealDia = null,
+    ?DateTimeImmutable $salidaRealDia = null
 ): int
 {
     $dia = $fecha->setTime(0, 0);
@@ -1263,6 +1327,31 @@ function ht_obtener_regreso_por_fin_de_turno(
     $salidaReferencia = $dia->getTimestamp() + $regresoInformadoSec;
     if ($salidaReferencia <= $entradaReferencia) {
         $salidaReferencia += 86400;
+    }
+
+    $salidaConfigurada = ht_parse_horario_empleado($horarioSalida);
+    if ($salidaConfigurada !== null) {
+        $salidaConfiguradaSec = ht_time_to_seconds($salidaConfigurada);
+        if ($salidaAutorizadaSec >= $salidaConfiguradaSec) {
+            return $regresoInformadoSec > $salidaConfiguradaSec
+                ? $salidaConfiguradaSec
+                : $regresoInformadoSec;
+        }
+    }
+
+    if ($entradaRealDia !== null && $salidaRealDia !== null && $salidaRealDia > $entradaRealDia) {
+        $turnoReal = ht_obtener_turno_asignado(
+            $turnos,
+            $entradaRealDia,
+            $salidaRealDia,
+            $fecha,
+            $areaNombre,
+            $horarioIngreso,
+            $horarioSalida
+        );
+        if ($turnoReal['fin'] !== null) {
+            return ht_segundos_del_dia($turnoReal['fin']);
+        }
     }
 
     $entradaDt = (new DateTimeImmutable())->setTimestamp($entradaReferencia);
