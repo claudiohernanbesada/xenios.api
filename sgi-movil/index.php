@@ -13,6 +13,7 @@ require_once __DIR__ . '/lib/novedades.php';
 require_once __DIR__ . '/lib/password_reset.php';
 require_once __DIR__ . '/lib/vacaciones.php';
 require_once __DIR__ . '/lib/auth_salida_list.php';
+require_once __DIR__ . '/lib/auth_salida_scan.php';
 require_once __DIR__ . '/lib/usuarios.php';
 require_once __DIR__ . '/lib/areas.php';
 
@@ -53,6 +54,7 @@ try {
         $method === 'GET' && $path === '/auth/avatar/imagen' => handle_avatar_imagen($pdo, $config),
         $method === 'GET' && $path === '/fichadas' => handle_fichadas($pdo, $config),
         $method === 'GET' && $path === '/autorizaciones-salida' => handle_autorizaciones($pdo, $config),
+        $method === 'POST' && $path === '/auth-salida/scan' => handle_auth_salida_scan($pdo, $config),
         $method === 'GET' && $path === '/asistencia' => handle_asistencia($pdo, $config),
         $method === 'GET' && $path === '/vacaciones' => handle_vacaciones($pdo, $config),
         $method === 'POST' && $path === '/push/registrar-token' => handle_push_registrar_token($pdo, $config),
