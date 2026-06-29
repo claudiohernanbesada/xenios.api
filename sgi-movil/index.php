@@ -43,6 +43,7 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 try {
     match (true) {
         $method === 'GET' && $path === '/health' => json_response(['ok' => true, 'service' => 'sgi-movil'], 200, $config),
+        $method === 'GET' && $path === '/app/version' => handle_app_version($config),
         $method === 'POST' && $path === '/auth/login' => handle_login($pdo, $config),
         $method === 'POST' && $path === '/auth/recuperar-clave' => handle_recuperar_clave_solicitud($pdo, $config),
         $method === 'GET' && $path === '/auth/recuperar-clave/validar' => handle_recuperar_clave_validar($pdo, $config),
@@ -70,6 +71,50 @@ try {
 }
 
 // POST /auth/recuperar-clave — envía mail con enlace (respuesta genérica)
+function handle_app_version(array $config): void
+{
+    $appVersion = is_array($config['app_version'] ?? null) ? $config['app_version'] : [];
+
+    $currentVersion = trim((string) ($_GET['version'] ?? ''));
+    $platform = strtolower(trim((string) ($_GET['platform'] ?? '')));
+    $currentVersionCode = (int) ($_GET['versionCode'] ?? 0);
+
+    $latestVersion = trim((string) ($appVersion['latest_version'] ?? '1.0.0'));
+    $minimumVersion = trim((string) ($appVersion['minimum_version'] ?? $latestVersion));
+    $latestAndroidVersionCode = (int) ($appVersion['android_version_code'] ?? 0);
+    $downloadUrl = trim((string) ($appVersion['download_url'] ?? ''));
+    $message = trim((string) ($appVersion['message'] ?? 'Hay una nueva version disponible de SGI Movil.'));
+
+    $versionIsOlder = $currentVersion !== '' && version_compare($currentVersion, $latestVersion, '<');
+    $versionIsBelowMinimum = $currentVersion !== '' && version_compare($currentVersion, $minimumVersion, '<');
+    $androidCodeIsOlder = $platform === 'android'
+        && $latestAndroidVersionCode > 0
+        && $currentVersionCode > 0
+        && $currentVersionCode < $latestAndroidVersionCode;
+
+    $updateAvailable = $versionIsOlder || $androidCodeIsOlder;
+    $updateRequired = $versionIsBelowMinimum;
+
+    $payload = [
+        'ok' => true,
+        'currentVersion' => $currentVersion,
+        'platform' => $platform,
+        'latestVersion' => $latestVersion,
+        'minimumVersion' => $minimumVersion,
+        'latestVersionCode' => $latestAndroidVersionCode,
+        'updateAvailable' => $updateAvailable,
+        'updateRequired' => $updateRequired,
+        'required' => $updateRequired,
+        'message' => $message,
+    ];
+
+    if ($downloadUrl !== '') {
+        $payload['downloadUrl'] = $downloadUrl;
+    }
+
+    json_response($payload, 200, $config);
+}
+
 function handle_recuperar_clave_solicitud(PDO $pdo, array $config): void
 {
     $body = json_decode(file_get_contents('php://input') ?: '{}', true) ?? [];

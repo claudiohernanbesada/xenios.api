@@ -34,4 +34,11 @@ return [
         'mail_from' => getenv('SGI_MAIL_FROM') ?: 'noreply@raei.com.ar',
         'mail_from_name' => 'SGI - Metalúrgica RAEI',
     ],
+    'app_version' => [
+        'latest_version' => getenv('SGI_MOVIL_LATEST_VERSION') ?: '1.0.6.5',
+        'minimum_version' => getenv('SGI_MOVIL_MINIMUM_VERSION') ?: '1.0.6.5',
+        'android_version_code' => (int) (getenv('SGI_MOVIL_ANDROID_VERSION_CODE') ?: 8),
+        'download_url' => getenv('SGI_MOVIL_DOWNLOAD_URL') ?: '',
+        'message' => getenv('SGI_MOVIL_UPDATE_MESSAGE') ?: 'Hay una nueva version disponible de SGI Movil.',
+    ],
 ];
