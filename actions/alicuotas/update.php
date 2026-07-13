@@ -209,18 +209,20 @@ function consultar_alicuotas(array $empresa): ?array
     if ($alicuotaIibb === null) {
         $arba = consultar_alicuota_iibb_arba($cuit);
         $alicuotaIibb = $arba['alicuota'];
-        $fuentes[] = $arba['detalle'];
         if ($alicuotaIibb === null) {
             $observaciones[] = $arba['detalle'];
+        } else {
+            $fuentes[] = $arba['detalle'];
         }
     }
 
     if ($alicuotaGanancias === null) {
         $afip = consultar_alicuota_ganancias_afip($cuit);
         $alicuotaGanancias = $afip['alicuota'];
-        $fuentes[] = $afip['detalle'];
         if ($alicuotaGanancias === null) {
             $observaciones[] = $afip['detalle'];
+        } else {
+            $fuentes[] = $afip['detalle'];
         }
     }
 
