@@ -5,6 +5,7 @@ declare(strict_types=1);
 // Config central de la API móvil — acá se arma el array que usa el resto
 require_once dirname(__DIR__) . '/_inc/credenciales.php';
 require_once dirname(__DIR__) . '/_inc/rutas_archivos.php';
+require_once dirname(__DIR__) . '/_inc/api_tokens.php';
 
 return [
     // Datos de conexión MySQL (vienen de credenciales.php)
@@ -26,7 +27,7 @@ return [
     // Origen permitido en CORS (* en dev, restringir en prod)
     'cors_origin' => '*',
     // Clave única para endpoints de administración / sistemas externos (header X-API-KEY)
-    'api_key' => getenv('SGI_API_KEY') ?: getenv('SGI_NOVEDADES_API_KEY') ?: 'c0256d3b-8510-4a7f-af05-92b007521f23',
+    'api_key' => sgi_api_token_esperado(),
     'password_reset' => [
         'public_base_url' => getenv('SGI_PASSWORD_RESET_URL') ?: 'https://restartpassword.sgi.raei.com.ar',
         'api_public_url' => getenv('SGI_PASSWORD_RESET_API_URL') ?: 'https://api.raei.com.ar/sgi-movil',
