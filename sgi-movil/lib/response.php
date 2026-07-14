@@ -12,7 +12,7 @@ function apply_cors(array $config): void
     }
     header('Access-Control-Allow-Origin: ' . $origin);
     header('Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS');
-    header('Access-Control-Allow-Headers: Authorization, Content-Type, X-Auth-Token, X-Novedades-Api-Key, X-Api-Key, Accept');
+    header('Access-Control-Allow-Headers: Authorization, Content-Type, X-Auth-Token, X-API-KEY, X-Novedades-Api-Key, X-Api-Key, Accept');
     header('Access-Control-Max-Age: 86400');
     if ($origin !== '*') {
         header('Access-Control-Allow-Credentials: true');

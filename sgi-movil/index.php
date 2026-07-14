@@ -600,7 +600,11 @@ function handle_novedades_enviar(PDO $pdo, array $config): void
         $result = novedades_crear_y_enviar($pdo, $titulo, $cuerpo, $fromRaw, $usuarioIds);
         json_response(['ok' => true] + $result, 201, $config);
     } catch (Throwable $e) {
-        json_response(['message' => 'No se pudo registrar la novedad'], 500, $config);
+        error_log('[novedades] No se pudo registrar la novedad: ' . $e->getMessage());
+        json_response([
+            'message' => 'No se pudo registrar la novedad',
+            'detail' => $e->getMessage(),
+        ], 500, $config);
     }
 }
 

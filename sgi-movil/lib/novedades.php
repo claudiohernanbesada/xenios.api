@@ -155,9 +155,18 @@ function novedades_crear_y_enviar(
         throw $e;
     }
 
-    $tokens = novedades_tokens_por_usuarios($pdo, $usuarioIds);
-    $messages = expo_push_build_novedad_messages($tokens, $novedadId, $titulo, $cuerpo);
-    $push = expo_push_send_batch($messages);
+    $push = ['sent' => 0, 'errors' => []];
+    try {
+        $tokens = novedades_tokens_por_usuarios($pdo, $usuarioIds);
+        $messages = expo_push_build_novedad_messages($tokens, $novedadId, $titulo, $cuerpo);
+        $push = expo_push_send_batch($messages);
+    } catch (Throwable $e) {
+        error_log('[novedades] Novedad registrada sin push. NovedadId=' . $novedadId . ' Error=' . $e->getMessage());
+        $push = [
+            'sent' => 0,
+            'errors' => ['La novedad fue registrada, pero no se pudo enviar el push: ' . $e->getMessage()],
+        ];
+    }
 
     return [
         'novedadId' => $novedadId,
