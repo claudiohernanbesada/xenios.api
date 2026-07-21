@@ -8,37 +8,12 @@ function password_reset_config(array $config): array
 {
     $defaults = [
         'public_base_url' => 'https://restartpassword.sgi.raei.com.ar',
-        'api_public_url' => 'https://api.raei.com.ar/sgi-movil',
         'ttl_seconds' => 3600,
         'mail_from' => 'noreply@raei.com.ar',
-        'mail_from_name' => 'SGI - Metalúrgica RAEI',
+        'mail_from_name' => 'SGI - Metalurgica RAEI',
     ];
 
     return array_merge($defaults, $config['password_reset'] ?? []);
-}
-
-function password_reset_new_id(): string
-{
-    $b = random_bytes(16);
-    $b[6] = chr((ord($b[6]) & 0x0f) | 0x40);
-    $b[8] = chr((ord($b[8]) & 0x3f) | 0x80);
-
-    return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($b), 4));
-}
-
-function password_reset_table_exists(PDO $pdo): bool
-{
-    try {
-        $pdo->query('SELECT 1 FROM MovilPasswordReset LIMIT 1');
-        return true;
-    } catch (Throwable) {
-        return false;
-    }
-}
-
-function password_reset_hash_token(string $plainToken): string
-{
-    return hash('sha256', $plainToken);
 }
 
 /** @return array{Id:string,Nombre:string,Apellido:string,Mail:string}|null */
@@ -54,31 +29,21 @@ function password_reset_find_user_by_mail(PDO $pdo, string $mail): ?array
     return $row ?: null;
 }
 
-function password_reset_invalidate_previous(PDO $pdo, string $usuarioId): void
-{
-    $stmt = $pdo->prepare(
-        'UPDATE MovilPasswordReset SET UsedAt = NOW()
-         WHERE UsuarioId = :uid AND UsedAt IS NULL'
-    );
-    $stmt->execute(['uid' => $usuarioId]);
-}
-
 function password_reset_create_token(PDO $pdo, string $usuarioId, int $ttlSeconds): string
 {
-    password_reset_invalidate_previous($pdo, $usuarioId);
-
     $plain = bin2hex(random_bytes(32));
-    $id = password_reset_new_id();
-    $expires = (new DateTimeImmutable())->modify('+' . $ttlSeconds . ' seconds');
+    $expires = (new DateTimeImmutable('now', new DateTimeZone('UTC')))
+        ->modify('+' . $ttlSeconds . ' seconds');
 
     $stmt = $pdo->prepare(
-        'INSERT INTO MovilPasswordReset (Id, UsuarioId, TokenHash, ExpiresAt)
-         VALUES (:id, :uid, :hash, :exp)'
+        'UPDATE Usuarios
+         SET PasswordResetToken = :token,
+             PasswordResetTokenExpiration = :exp
+         WHERE Id = :uid AND Estado = 1'
     );
     $stmt->execute([
-        'id' => $id,
         'uid' => $usuarioId,
-        'hash' => password_reset_hash_token($plain),
+        'token' => $plain,
         'exp' => $expires->format('Y-m-d H:i:s'),
     ]);
 
@@ -115,14 +80,10 @@ function password_reset_send_mail(array $prConfig, string $toMail, string $nombr
 }
 
 /**
- * Solicitud desde la app: siempre responde ok genérico (no revelar si el mail existe).
+ * Solicitud desde la app: siempre responde ok generico para no revelar si el mail existe.
  */
 function password_reset_request(PDO $pdo, array $config, string $correo): array
 {
-    if (!password_reset_table_exists($pdo)) {
-        return ['ok' => false, 'message' => 'Módulo de recuperación no instalado en el servidor'];
-    }
-
     $pr = password_reset_config($config);
     $user = password_reset_find_user_by_mail($pdo, $correo);
 
@@ -142,28 +103,30 @@ function password_reset_request(PDO $pdo, array $config, string $correo): array
 /** @return array{ok:bool,usuarioId?:string,message?:string} */
 function password_reset_validate(PDO $pdo, string $plainToken): array
 {
-    if (!password_reset_table_exists($pdo)) {
-        return ['ok' => false, 'message' => 'Módulo de recuperación no instalado'];
-    }
-
-    $hash = password_reset_hash_token($plainToken);
     $stmt = $pdo->prepare(
-        'SELECT UsuarioId, ExpiresAt, UsedAt FROM MovilPasswordReset
-         WHERE TokenHash = :hash ORDER BY CreatedAt DESC LIMIT 1'
+        'SELECT Id, PasswordResetTokenExpiration
+         FROM Usuarios
+         WHERE PasswordResetToken = :token AND Estado = 1
+         LIMIT 1'
     );
-    $stmt->execute(['hash' => $hash]);
+    $stmt->execute(['token' => $plainToken]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$row || $row['UsedAt'] !== null) {
+    if (!$row) {
         return ['ok' => false, 'message' => 'El enlace no es válido o ya fue utilizado'];
     }
 
-    $expires = new DateTimeImmutable((string) $row['ExpiresAt']);
-    if ($expires < new DateTimeImmutable()) {
+    $expiresRaw = (string) ($row['PasswordResetTokenExpiration'] ?? '');
+    if ($expiresRaw === '') {
+        return ['ok' => false, 'message' => 'El enlace no es válido o ya fue utilizado'];
+    }
+
+    $expires = new DateTimeImmutable($expiresRaw, new DateTimeZone('UTC'));
+    if ($expires < new DateTimeImmutable('now', new DateTimeZone('UTC'))) {
         return ['ok' => false, 'message' => 'El enlace expiró. Solicitá uno nuevo desde la app'];
     }
 
-    return ['ok' => true, 'usuarioId' => (string) $row['UsuarioId']];
+    return ['ok' => true, 'usuarioId' => (string) $row['Id']];
 }
 
 /** @return list<string> */
@@ -228,26 +191,32 @@ function password_reset_complete(PDO $pdo, array $config, string $plainToken, st
     }
 
     $usuarioId = (string) $validation['usuarioId'];
-    $hash = password_reset_hash_token($plainToken);
 
     $pdo->beginTransaction();
     try {
         $stmt = $pdo->prepare(
-            'UPDATE Usuarios SET Passwd = :passwd, dateUpdate = NOW() WHERE Id = :id AND Estado = 1'
+            'UPDATE Usuarios
+             SET Passwd = :passwd,
+                 PasswordResetToken = NULL,
+                 PasswordResetTokenExpiration = NULL,
+                 dateUpdate = NOW()
+             WHERE Id = :id
+               AND Estado = 1
+               AND PasswordResetToken = :token'
         );
         $stmt->execute([
             'passwd' => sha256_password($nueva),
             'id' => $usuarioId,
+            'token' => $plainToken,
         ]);
 
-        $mark = $pdo->prepare(
-            'UPDATE MovilPasswordReset SET UsedAt = NOW()
-             WHERE TokenHash = :hash AND UsedAt IS NULL'
-        );
-        $mark->execute(['hash' => $hash]);
+        if ($stmt->rowCount() < 1) {
+            $pdo->rollBack();
+            return ['ok' => false, 'message' => 'El enlace no es válido o ya fue utilizado'];
+        }
 
         $pdo->commit();
-    } catch (Throwable $e) {
+    } catch (Throwable) {
         $pdo->rollBack();
         return ['ok' => false, 'message' => 'No se pudo actualizar la contraseña'];
     }

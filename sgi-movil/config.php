@@ -30,7 +30,6 @@ return [
     'api_key' => sgi_api_token_esperado(),
     'password_reset' => [
         'public_base_url' => getenv('SGI_PASSWORD_RESET_URL') ?: 'https://restartpassword.sgi.raei.com.ar',
-        'api_public_url' => getenv('SGI_PASSWORD_RESET_API_URL') ?: 'https://api.raei.com.ar/sgi-movil',
         'ttl_seconds' => 3600,
         'mail_from' => getenv('SGI_MAIL_FROM') ?: 'noreply@raei.com.ar',
         'mail_from_name' => 'SGI - Metalúrgica RAEI',

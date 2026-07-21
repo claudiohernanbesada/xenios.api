@@ -2,15 +2,48 @@
 declare(strict_types=1);
 
 /**
- * Página pública de restablecimiento de contraseña.
- * Alojar en restartpassword.sgi.raei.com.ar (alias de api.raei.com.ar).
- * Copiar logo-raei.png junto a este index (desde assets/ de la app móvil).
+ * Pagina publica de restablecimiento de contraseña.
+ * No llama a la API por HTTP para no exponer SGI_API_TOKEN en el navegador.
  */
+require_once dirname(__DIR__) . '/lib/db.php';
+require_once dirname(__DIR__) . '/lib/password_reset.php';
+
 $config = require dirname(__DIR__) . '/config.php';
-$pr = $config['password_reset'] ?? [];
-$apiBase = rtrim((string) ($pr['api_public_url'] ?? 'https://api.raei.com.ar/sgi-movil'), '/');
-$token = trim((string) ($_GET['token'] ?? ''));
+$token = trim((string) ($_POST['token'] ?? $_GET['token'] ?? ''));
 $logoUrl = 'logo-raei.png';
+$feedback = null;
+$feedbackOk = false;
+$formVisible = true;
+$subtitle = 'Ingresá tu nueva contraseña para la app SGI.';
+
+try {
+    $pdo = db_connect($config);
+
+    if ($token === '') {
+        $formVisible = false;
+        $feedback = 'Falta el enlace de recuperación. Solicitá uno nuevo desde la app SGI.';
+    } elseif (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+        $nueva = (string) ($_POST['clave'] ?? '');
+        $confirmacion = (string) ($_POST['clave2'] ?? '');
+        $result = password_reset_complete($pdo, $config, $token, $nueva, $confirmacion);
+        $feedbackOk = (bool) ($result['ok'] ?? false);
+        $feedback = (string) ($result['message'] ?? 'No se pudo actualizar la contraseña.');
+        if ($feedbackOk) {
+            $formVisible = false;
+            $subtitle = 'Contraseña actualizada';
+            $feedback = 'El cambio fue exitoso. Volvé a la aplicación SGI en tu celular e iniciá sesión con la nueva contraseña. Recibirás una notificación en el dispositivo donde tengas la app instalada.';
+        }
+    } else {
+        $validation = password_reset_validate($pdo, $token);
+        if (!($validation['ok'] ?? false)) {
+            $formVisible = false;
+            $feedback = (string) ($validation['message'] ?? 'Enlace inválido o expirado.');
+        }
+    }
+} catch (Throwable) {
+    $formVisible = false;
+    $feedback = 'No se pudo verificar el enlace. Intentá más tarde.';
+}
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -85,12 +118,11 @@ $logoUrl = 'logo-raei.png';
       border-radius: 4px;
       font-size: 0.9rem;
       line-height: 1.45;
-      display: none;
+      display: block;
     }
-    .msg.error { display: block; background: #fce8e6; color: #c5221f; }
-    .msg.ok { display: block; background: #e6f4ea; color: #137333; }
+    .msg.error { background: #fce8e6; color: #c5221f; }
+    .msg.ok { background: #e6f4ea; color: #137333; }
     .policy { font-size: 0.78rem; color: #5f6368; margin-top: 12px; line-height: 1.35; }
-    #form-block.hidden { display: none; }
   </style>
 </head>
 <body>
@@ -99,10 +131,11 @@ $logoUrl = 'logo-raei.png';
       <img src="<?= htmlspecialchars($logoUrl, ENT_QUOTES, 'UTF-8') ?>" alt="RAEI" onerror="this.style.display='none'" />
     </div>
     <h1>Restablecer contraseña</h1>
-    <p class="sub" id="subtitle">Ingresá tu nueva contraseña para la app SGI.</p>
+    <p class="sub" id="subtitle"><?= htmlspecialchars($subtitle, ENT_QUOTES, 'UTF-8') ?></p>
 
-    <div id="form-block">
-      <form id="reset-form" novalidate>
+    <?php if ($formVisible): ?>
+      <form id="reset-form" method="post" novalidate>
+        <input type="hidden" name="token" value="<?= htmlspecialchars($token, ENT_QUOTES, 'UTF-8') ?>" />
         <div class="field">
           <label for="clave">Nueva contraseña</label>
           <input id="clave" name="clave" type="password" autocomplete="new-password" required minlength="8" />
@@ -120,26 +153,16 @@ $logoUrl = 'logo-raei.png';
         <p class="policy">Mínimo 8 caracteres, una mayúscula, una minúscula, dos números y un carácter especial.</p>
         <button type="submit" class="primary" id="btn-submit">Guardar contraseña</button>
       </form>
-    </div>
+    <?php endif; ?>
 
-    <div id="feedback" class="msg" role="alert"></div>
+    <?php if ($feedback !== null): ?>
+      <div class="msg <?= $feedbackOk ? 'ok' : 'error' ?>" role="alert">
+        <?= htmlspecialchars($feedback, ENT_QUOTES, 'UTF-8') ?>
+      </div>
+    <?php endif; ?>
   </div>
 
   <script>
-    const API_BASE = <?= json_encode($apiBase, JSON_UNESCAPED_UNICODE) ?>;
-    const TOKEN = <?= json_encode($token, JSON_UNESCAPED_UNICODE) ?>;
-
-    const formBlock = document.getElementById('form-block');
-    const form = document.getElementById('reset-form');
-    const feedback = document.getElementById('feedback');
-    const subtitle = document.getElementById('subtitle');
-    const btn = document.getElementById('btn-submit');
-
-    function showMsg(text, ok) {
-      feedback.textContent = text;
-      feedback.className = 'msg ' + (ok ? 'ok' : 'error');
-    }
-
     document.querySelectorAll('.toggle-eye').forEach((btnEye) => {
       btnEye.addEventListener('click', () => {
         const id = btnEye.getAttribute('data-target');
@@ -150,62 +173,6 @@ $logoUrl = 'logo-raei.png';
         btnEye.setAttribute('aria-label', show ? 'Ocultar contraseña' : 'Mostrar contraseña');
       });
     });
-
-    async function validarToken() {
-      if (!TOKEN) {
-        formBlock.classList.add('hidden');
-        showMsg('Falta el enlace de recuperación. Solicitá uno nuevo desde la app SGI.', false);
-        return;
-      }
-      try {
-        const res = await fetch(API_BASE + '/auth/recuperar-clave/validar?token=' + encodeURIComponent(TOKEN));
-        const data = await res.json();
-        if (!data.ok) {
-          formBlock.classList.add('hidden');
-          showMsg(data.message || 'Enlace inválido o expirado.', false);
-        }
-      } catch (e) {
-        formBlock.classList.add('hidden');
-        showMsg('No se pudo verificar el enlace. Intentá más tarde.', false);
-      }
-    }
-
-    form.addEventListener('submit', async (ev) => {
-      ev.preventDefault();
-      const nueva = document.getElementById('clave').value;
-      const confirmacion = document.getElementById('clave2').value;
-      if (nueva !== confirmacion) {
-        showMsg('Las contraseñas no coinciden.', false);
-        return;
-      }
-      btn.disabled = true;
-      showMsg('Guardando…', true);
-      try {
-        const res = await fetch(API_BASE + '/auth/recuperar-clave/completar', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ token: TOKEN, nuevaClave: nueva, confirmacion }),
-        });
-        const data = await res.json();
-        if (!res.ok || !data.ok) {
-          showMsg(data.message || 'No se pudo actualizar la contraseña.', false);
-          btn.disabled = false;
-          return;
-        }
-        formBlock.classList.add('hidden');
-        subtitle.textContent = 'Contraseña actualizada';
-        showMsg(
-          'El cambio fue exitoso. Volvé a la aplicación SGI en tu celular e iniciá sesión con la nueva contraseña. ' +
-          'Recibirás una notificación en el dispositivo donde tengas la app instalada.',
-          true
-        );
-      } catch (e) {
-        showMsg('Error de conexión con el servidor.', false);
-        btn.disabled = false;
-      }
-    });
-
-    void validarToken();
   </script>
 </body>
 </html>
