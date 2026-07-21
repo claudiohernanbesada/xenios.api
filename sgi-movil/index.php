@@ -20,9 +20,14 @@ require_once __DIR__ . '/lib/areas.php';
 $config = require __DIR__ . '/config.php';
 apply_cors($config);
 
+// Path limpio y método HTTP del request entrante
+$path = current_api_path($config);
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+require_api_key($config);
+
 // Preflight CORS — el browser manda OPTIONS antes del POST/DELETE real
-if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
-    apply_cors($config);
+if ($method === 'OPTIONS') {
     http_response_code(204);
     exit;
 }
@@ -34,12 +39,6 @@ try {
     json_response(['message' => 'Error de conexión a base de datos'], 500, $config);
     exit;
 }
-
-// Path limpio y método HTTP del request entrante
-$path = current_api_path($config);
-$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-
-require_api_key($config);
 
 // Enrutador: método + path → handler correspondiente
 try {
@@ -285,6 +284,7 @@ function handle_avatar_imagen(PDO $pdo, array $config): void
     $auth = require_auth($pdo, $config);
 
     apply_cors($config);
+
     if (stream_avatar_for_user($auth['user'])) {
         exit;
     }
@@ -418,6 +418,7 @@ function handle_autorizacion_archivo(PDO $pdo, array $config, string $path, stri
     $fileName = basename((string) $row['AuthFile']);
 
     apply_cors($config);
+
     if (stream_auth_salida_file($fileName, $config)) {
         exit;
     }
