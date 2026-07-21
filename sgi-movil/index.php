@@ -39,6 +39,8 @@ try {
 $path = current_api_path($config);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
+require_api_key($config);
+
 // Enrutador: método + path → handler correspondiente
 try {
     match (true) {
@@ -180,8 +182,26 @@ function handle_cambiar_clave(PDO $pdo, array $config): void
 {
     $auth = require_auth($pdo, $config);
     $body = json_decode(file_get_contents('php://input') ?: '{}', true) ?? [];
+    $actual = (string) ($body['claveActual'] ?? '');
     $nueva = (string) ($body['nuevaClave'] ?? '');
     $confirmacion = (string) ($body['confirmacion'] ?? '');
+
+    if ($actual === '') {
+        json_response(['message' => 'La contraseña actual es requerida'], 400, $config);
+        return;
+    }
+
+    $stmtActual = $pdo->prepare(
+        'SELECT Id FROM Usuarios WHERE Id = :id AND Passwd = :passwd LIMIT 1'
+    );
+    $stmtActual->execute([
+        'id' => $auth['user']['Id'],
+        'passwd' => sha256_password($actual),
+    ]);
+    if (!$stmtActual->fetch()) {
+        json_response(['message' => 'La contraseña actual no es correcta'], 400, $config);
+        return;
+    }
 
     if ($nueva !== $confirmacion) {
         json_response(['message' => 'Las contraseñas no coinciden'], 400, $config);

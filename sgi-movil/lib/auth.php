@@ -312,16 +312,28 @@ function validar_api_key(array $config): bool
         return false;
     }
 
-    $provided = (string) (
-        $_SERVER['HTTP_X_API_KEY']
-        ?? $_SERVER['HTTP_X_NOVEDADES_API_KEY']
-        ?? ''
-    );
+    if (function_exists('sgi_api_token_recibido')) {
+        $provided = sgi_api_token_recibido();
+    } else {
+        $provided = (string) (
+            $_SERVER['HTTP_X_API_KEY']
+            ?? $_SERVER['HTTP_X_NOVEDADES_API_KEY']
+            ?? ''
+        );
+    }
 
     return $provided !== '' && hash_equals($expected, $provided);
 }
 
 // Middleware: token válido + usuario activo + permisos según rol
+function require_api_key(array $config): void
+{
+    if (!validar_api_key($config)) {
+        json_response(['message' => 'API key inválida'], 401, $config);
+        exit;
+    }
+}
+
 function require_auth(PDO $pdo, array $config): array
 {
     $token = bearer_token();
