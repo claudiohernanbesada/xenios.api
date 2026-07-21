@@ -24,7 +24,7 @@ apply_cors($config);
 $path = current_api_path($config);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
-// require_api_key($config); // API key requerida para todas las rutas (desactivado, se valida en cada handler según corresponda)
+require_api_key($config); // API key requerida para todas las rutas (desactivado, se valida en cada handler según corresponda)
 
 // Preflight CORS — el browser manda OPTIONS antes del POST/DELETE real
 if ($method === 'OPTIONS') {
