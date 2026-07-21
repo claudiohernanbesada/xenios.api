@@ -329,7 +329,7 @@ function validar_api_key(array $config): bool
 function require_api_key(array $config): void
 {
     if (!validar_api_key($config)) {
-        json_response(['message' => 'API key inválida'], 401, $config);
+        json_response(['message' => 'Error de seguridad AK-NOT_FOUND'], 401, $config);
         exit;
     }
 }

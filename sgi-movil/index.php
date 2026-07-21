@@ -581,7 +581,7 @@ function handle_novedades_list(PDO $pdo, array $config): void
 function handle_novedades_enviar(PDO $pdo, array $config): void
 {
     if (!validar_api_key($config)) {
-        json_response(['message' => 'API key inválida'], 401, $config);
+        json_response(['message' => 'Error de seguridad AK-NOT_FOUND'], 401, $config);
         return;
     }
     novedades_require_tables($pdo, $config);
