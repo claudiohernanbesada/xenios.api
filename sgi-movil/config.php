@@ -28,6 +28,12 @@ return [
     'cors_origin' => '*',
     // Clave única para endpoints de administración / sistemas externos (header X-API-KEY)
     'api_key' => sgi_api_token_esperado(),
+    'app_version' => [
+        'android_latest_version' => getenv('SGI_MOVIL_ANDROID_LATEST_VERSION') ?: '',
+        'android_store_url' => getenv('SGI_MOVIL_ANDROID_STORE_URL') ?: 'https://play.google.com/store/apps/details?id=ar.com.raei.sgi',
+        'ios_latest_version' => getenv('SGI_MOVIL_IOS_LATEST_VERSION') ?: '',
+        'ios_store_url' => getenv('SGI_MOVIL_IOS_STORE_URL') ?: '',
+    ],
     'password_reset' => [
         'public_base_url' => getenv('SGI_PASSWORD_RESET_URL') ?: 'https://restartpassword.sgi.raei.com.ar',
         'ttl_seconds' => 3600,
