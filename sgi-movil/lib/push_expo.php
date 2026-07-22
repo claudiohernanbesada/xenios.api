@@ -66,7 +66,7 @@ function expo_push_build_novedad_messages(
         }
         $messages[] = [
             'to' => $token,
-            'title' => 'SGI',
+            'title' => 'SGI-RAEI',
             'body' => 'Tiene novedades pendientes de lectura',
             'sound' => 'default',
             'priority' => 'high',
@@ -98,7 +98,7 @@ function expo_push_build_fichada_messages(array $items): array
         $hora = (string) ($item['hora'] ?? '');
         $messages[] = [
             'to' => $token,
-            'title' => 'SGI',
+            'title' => 'SGI-RAEI',
             'body' => "Hemos registrado tu fichada del {$fecha} a las {$hora} hs. con éxito!",
             'sound' => 'default',
             'priority' => 'high',

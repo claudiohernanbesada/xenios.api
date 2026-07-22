@@ -210,6 +210,13 @@ function novedades_registrar_token(
     $existing = $stmt->fetch(PDO::FETCH_ASSOC);
 
     $ahora = (new DateTimeImmutable('now'))->format('Y-m-d H:i:s');
+    $del = $pdo->prepare(
+        'DELETE FROM MovilPushToken WHERE UsuarioId = :uid AND ExpoPushToken <> :token'
+    );
+    $del->execute([
+        'uid' => $usuarioId,
+        'token' => $expoToken,
+    ]);
 
     if ($existing) {
         $upd = $pdo->prepare(
