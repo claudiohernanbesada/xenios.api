@@ -10,6 +10,7 @@ require_once __DIR__ . '/lib/auth_salida_file.php';
 require_once __DIR__ . '/lib/asistencia_calendario.php';
 require_once __DIR__ . '/lib/horas_trabajadas_empleado.php';
 require_once __DIR__ . '/lib/novedades.php';
+require_once __DIR__ . '/lib/fichadas_push.php';
 require_once __DIR__ . '/lib/password_reset.php';
 require_once __DIR__ . '/lib/vacaciones.php';
 require_once __DIR__ . '/lib/auth_salida_list.php';
@@ -60,6 +61,7 @@ try {
         $method === 'GET' && $path === '/asistencia' => handle_asistencia($pdo, $config),
         $method === 'GET' && $path === '/vacaciones' => handle_vacaciones($pdo, $config),
         $method === 'POST' && $path === '/push/registrar-token' => handle_push_registrar_token($pdo, $config),
+        $method === 'POST' && $path === '/push/fichadas/procesar' => handle_push_fichadas_procesar($pdo, $config),
         $method === 'GET' && $path === '/novedades' => handle_novedades_list($pdo, $config),
         $method === 'GET' && $path === '/usuarios' => handle_usuarios_list($pdo, $config),
         $method === 'GET' && $path === '/areas' => handle_areas_list($pdo, $config),
@@ -534,6 +536,30 @@ function handle_push_registrar_token(PDO $pdo, array $config): void
     );
 
     json_response(['ok' => true], 200, $config);
+}
+
+// POST /push/fichadas/procesar — envía push remoto por fichadas nuevas aunque la app esté cerrada
+function handle_push_fichadas_procesar(PDO $pdo, array $config): void
+{
+    if (!validar_api_key($config)) {
+        json_response(['message' => 'Error de seguridad AK-NOT_FOUND'], 401, $config);
+        return;
+    }
+
+    $body = json_decode(file_get_contents('php://input') ?: '{}', true) ?? [];
+    $lookbackHours = isset($body['lookbackHours']) ? (int) $body['lookbackHours'] : 24;
+    $limit = isset($body['limit']) ? (int) $body['limit'] : 200;
+    $baselineOnly = (bool) ($body['baselineOnly'] ?? false);
+
+    try {
+        json_response(fichadas_push_procesar($pdo, $lookbackHours, $limit, $baselineOnly), 200, $config);
+    } catch (Throwable $e) {
+        error_log('[fichadas_push] No se pudo procesar push de fichadas: ' . $e->getMessage());
+        json_response([
+            'message' => 'No se pudo procesar push de fichadas',
+            'detail' => $e->getMessage(),
+        ], 500, $config);
+    }
 }
 
 // GET /usuarios — listado de usuarios activos con sus áreas

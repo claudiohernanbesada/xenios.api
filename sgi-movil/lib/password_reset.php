@@ -2,7 +2,6 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/auth.php';
-require_once __DIR__ . '/push_expo.php';
 
 function password_reset_config(array $config): array
 {
@@ -61,13 +60,13 @@ function password_reset_send_mail(array $prConfig, string $toMail, string $nombr
 {
     $from = (string) $prConfig['mail_from'];
     $fromName = (string) $prConfig['mail_from_name'];
-    $subject = 'Restablecer contraseña - SGI';
+    $subject = 'Restablecer contrasena - SGI';
     $body =
         "Hola {$nombre},\n\n"
-        . "Recibimos una solicitud para restablecer la contraseña de tu cuenta en la app SGI.\n\n"
-        . "Abrí el siguiente enlace (válido por 1 hora):\n{$link}\n\n"
-        . "Si no solicitaste este cambio, ignorá este correo.\n\n"
-        . "Metalúrgica RAEI S.A.";
+        . "Recibimos una solicitud para restablecer la contrasena de tu cuenta en la app SGI.\n\n"
+        . "Abri el siguiente enlace (valido por 1 hora):\n{$link}\n\n"
+        . "Si no solicitaste este cambio, ignora este correo.\n\n"
+        . "Metalurgica RAEI S.A.";
 
     $headers = [
         'MIME-Version: 1.0',
@@ -96,7 +95,7 @@ function password_reset_request(PDO $pdo, array $config, string $correo): array
 
     return [
         'ok' => true,
-        'message' => 'Si el correo está registrado, recibirás un enlace para restablecer la contraseña.',
+        'message' => 'Si el correo esta registrado, recibiras un enlace para restablecer la contrasena.',
     ];
 }
 
@@ -113,71 +112,27 @@ function password_reset_validate(PDO $pdo, string $plainToken): array
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$row) {
-        return ['ok' => false, 'message' => 'El enlace no es válido o ya fue utilizado'];
+        return ['ok' => false, 'message' => 'El enlace no es valido o ya fue utilizado'];
     }
 
     $expiresRaw = (string) ($row['PasswordResetTokenExpiration'] ?? '');
     if ($expiresRaw === '') {
-        return ['ok' => false, 'message' => 'El enlace no es válido o ya fue utilizado'];
+        return ['ok' => false, 'message' => 'El enlace no es valido o ya fue utilizado'];
     }
 
     $expires = new DateTimeImmutable($expiresRaw, new DateTimeZone('UTC'));
     if ($expires < new DateTimeImmutable('now', new DateTimeZone('UTC'))) {
-        return ['ok' => false, 'message' => 'El enlace expiró. Solicitá uno nuevo desde la app'];
+        return ['ok' => false, 'message' => 'El enlace expiro. Solicita uno nuevo desde la app'];
     }
 
     return ['ok' => true, 'usuarioId' => (string) $row['Id']];
-}
-
-/** @return list<string> */
-function password_reset_fetch_push_tokens(PDO $pdo, string $usuarioId): array
-{
-    try {
-        $stmt = $pdo->prepare(
-            'SELECT ExpoPushToken FROM MovilPushToken WHERE UsuarioId = :uid'
-        );
-        $stmt->execute(['uid' => $usuarioId]);
-        return $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
-    } catch (Throwable) {
-        return [];
-    }
-}
-
-function password_reset_notify_app(PDO $pdo, string $usuarioId): void
-{
-    $tokens = password_reset_fetch_push_tokens($pdo, $usuarioId);
-    if ($tokens === []) {
-        return;
-    }
-
-    $messages = [];
-    foreach ($tokens as $token) {
-        $token = trim((string) $token);
-        if ($token === '' || !str_starts_with($token, 'ExponentPushToken[')) {
-            continue;
-        }
-        $messages[] = [
-            'to' => $token,
-            'title' => 'Contraseña actualizada',
-            'body' => 'Tu contraseña del SGI móvil fue restablecida correctamente.',
-            'sound' => 'default',
-            'priority' => 'high',
-            'channelId' => 'sistema',
-            'data' => [
-                'screen' => 'login',
-                'tipo' => 'passwordReset',
-            ],
-        ];
-    }
-
-    expo_push_send_batch($messages);
 }
 
 /** @return array{ok:bool,message?:string} */
 function password_reset_complete(PDO $pdo, array $config, string $plainToken, string $nueva, string $confirmacion): array
 {
     if ($nueva !== $confirmacion) {
-        return ['ok' => false, 'message' => 'Las contraseñas no coinciden'];
+        return ['ok' => false, 'message' => 'Las contrasenas no coinciden'];
     }
 
     $policyError = validate_password_policy($nueva);
@@ -189,8 +144,6 @@ function password_reset_complete(PDO $pdo, array $config, string $plainToken, st
     if (!$validation['ok']) {
         return $validation;
     }
-
-    $usuarioId = (string) $validation['usuarioId'];
 
     $pdo->beginTransaction();
     try {
@@ -206,22 +159,20 @@ function password_reset_complete(PDO $pdo, array $config, string $plainToken, st
         );
         $stmt->execute([
             'passwd' => sha256_password($nueva),
-            'id' => $usuarioId,
+            'id' => (string) $validation['usuarioId'],
             'token' => $plainToken,
         ]);
 
         if ($stmt->rowCount() < 1) {
             $pdo->rollBack();
-            return ['ok' => false, 'message' => 'El enlace no es válido o ya fue utilizado'];
+            return ['ok' => false, 'message' => 'El enlace no es valido o ya fue utilizado'];
         }
 
         $pdo->commit();
     } catch (Throwable) {
         $pdo->rollBack();
-        return ['ok' => false, 'message' => 'No se pudo actualizar la contraseña'];
+        return ['ok' => false, 'message' => 'No se pudo actualizar la contrasena'];
     }
 
-    password_reset_notify_app($pdo, $usuarioId);
-
-    return ['ok' => true, 'message' => 'Contraseña actualizada correctamente'];
+    return ['ok' => true, 'message' => 'Contrasena actualizada correctamente'];
 }

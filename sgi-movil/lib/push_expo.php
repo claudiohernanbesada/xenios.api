@@ -66,14 +66,45 @@ function expo_push_build_novedad_messages(
         }
         $messages[] = [
             'to' => $token,
-            'title' => $titulo,
-            'body' => mb_strlen($cuerpo) > 180 ? mb_substr($cuerpo, 0, 177) . '...' : $cuerpo,
+            'title' => 'SGI',
+            'body' => 'Tiene novedades pendientes de lectura',
             'sound' => 'default',
             'priority' => 'high',
             'channelId' => 'novedades',
             'data' => [
                 'novedadId' => $novedadId,
                 'screen' => 'novedades',
+            ],
+        ];
+    }
+
+    return $messages;
+}
+
+/**
+ * @param list<array{token:string, fecha:string, hora:string}> $items
+ * @return list<array<string, mixed>>
+ */
+function expo_push_build_fichada_messages(array $items): array
+{
+    $messages = [];
+    foreach ($items as $item) {
+        $token = trim((string) ($item['token'] ?? ''));
+        if ($token === '' || !str_starts_with($token, 'ExponentPushToken[')) {
+            continue;
+        }
+
+        $fecha = (string) ($item['fecha'] ?? '');
+        $hora = (string) ($item['hora'] ?? '');
+        $messages[] = [
+            'to' => $token,
+            'title' => 'SGI',
+            'body' => "Hemos registrado tu fichada del {$fecha} a las {$hora} hs. con éxito!",
+            'sound' => 'default',
+            'priority' => 'high',
+            'channelId' => 'fichadas',
+            'data' => [
+                'screen' => 'fichadas',
             ],
         ];
     }
