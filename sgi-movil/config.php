@@ -34,6 +34,10 @@ return [
         'ios_latest_version' => getenv('SGI_MOVIL_IOS_LATEST_VERSION') ?: '',
         'ios_store_url' => getenv('SGI_MOVIL_IOS_STORE_URL') ?: '',
     ],
+    'expo' => [
+        'project_id' => getenv('SGI_EXPO_PROJECT_ID') ?: '02ebadc9-b7d3-4d7e-a58e-7ace8961e8bd',
+        'experience_id' => getenv('SGI_EXPO_EXPERIENCE_ID') ?: '@cbesada/sgi-movil',
+    ],
     'password_reset' => [
         'public_base_url' => getenv('SGI_PASSWORD_RESET_URL') ?: 'https://restartpassword.sgi.raei.com.ar',
         'ttl_seconds' => 3600,

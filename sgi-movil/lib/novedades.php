@@ -203,33 +203,14 @@ function novedades_registrar_token(
         return;
     }
 
-    $stmt = $pdo->prepare(
-        'SELECT Id FROM MovilPushToken WHERE ExpoPushToken = :token LIMIT 1'
-    );
-    $stmt->execute(['token' => $expoToken]);
-    $existing = $stmt->fetch(PDO::FETCH_ASSOC);
-
     $ahora = (new DateTimeImmutable('now'))->format('Y-m-d H:i:s');
     $del = $pdo->prepare(
-        'DELETE FROM MovilPushToken WHERE UsuarioId = :uid AND ExpoPushToken <> :token'
+        'DELETE FROM MovilPushToken WHERE UsuarioId = :uid OR ExpoPushToken = :token'
     );
     $del->execute([
         'uid' => $usuarioId,
         'token' => $expoToken,
     ]);
-
-    if ($existing) {
-        $upd = $pdo->prepare(
-            'UPDATE MovilPushToken SET UsuarioId = :uid, Plataforma = :plat, ActualizadoEn = :act WHERE Id = :id'
-        );
-        $upd->execute([
-            'uid' => $usuarioId,
-            'plat' => $plataforma,
-            'act' => $ahora,
-            'id' => $existing['Id'],
-        ]);
-        return;
-    }
 
     $ins = $pdo->prepare(
         'INSERT INTO MovilPushToken (Id, UsuarioId, ExpoPushToken, Plataforma, ActualizadoEn)

@@ -48,6 +48,25 @@ function expo_push_send_batch(array $messages): array
     ];
 }
 
+function expo_push_enrich_data(array $data): array
+{
+    $configPath = dirname(__DIR__) . '/config.php';
+    $config = is_file($configPath) ? require $configPath : [];
+    $expo = is_array($config['expo'] ?? null) ? $config['expo'] : [];
+    $projectId = trim((string) ($expo['project_id'] ?? ''));
+    $experienceId = trim((string) ($expo['experience_id'] ?? ''));
+
+    if ($projectId !== '') {
+        $data['projectId'] = $projectId;
+    }
+    if ($experienceId !== '') {
+        $data['experienceId'] = $experienceId;
+        $data['scopeKey'] = $experienceId;
+    }
+
+    return $data;
+}
+
 /**
  * @param list<string> $expoTokens
  * @return list<array<string, mixed>>
@@ -66,15 +85,15 @@ function expo_push_build_novedad_messages(
         }
         $messages[] = [
             'to' => $token,
-            'title' => 'SGI-RAEI',
+            'title' => 'SGI - RAEI',
             'body' => 'Tiene novedades pendientes de lectura',
             'sound' => 'default',
             'priority' => 'high',
             'channelId' => 'novedades',
-            'data' => [
+            'data' => expo_push_enrich_data([
                 'novedadId' => $novedadId,
                 'screen' => 'novedades',
-            ],
+            ]),
         ];
     }
 
@@ -98,14 +117,14 @@ function expo_push_build_fichada_messages(array $items): array
         $hora = (string) ($item['hora'] ?? '');
         $messages[] = [
             'to' => $token,
-            'title' => 'SGI-RAEI',
+            'title' => 'SGI - RAEI',
             'body' => "Hemos registrado tu fichada del {$fecha} a las {$hora} hs. con éxito!",
             'sound' => 'default',
             'priority' => 'high',
             'channelId' => 'fichadas',
-            'data' => [
+            'data' => expo_push_enrich_data([
                 'screen' => 'fichadas',
-            ],
+            ]),
         ];
     }
 
