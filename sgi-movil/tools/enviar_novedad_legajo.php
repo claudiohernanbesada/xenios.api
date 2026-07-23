@@ -79,8 +79,8 @@ $out = [
 
 if (($result['pushEnviados'] ?? 0) === 0) {
     $out['aviso'] =
-        'Novedad guardada, pero pushEnviados=0: el usuario no tiene token Expo en MovilPushToken '
-        . '(abrir la app APK, iniciar sesión y aceptar notificaciones).';
+        'Novedad guardada, pero pushEnviados=0: el usuario no tiene token nativo FCM/APNs '
+        . '(abrir la app publicada, iniciar sesión y aceptar notificaciones).';
     fwrite(STDERR, $out['aviso'] . "\n");
 }
 

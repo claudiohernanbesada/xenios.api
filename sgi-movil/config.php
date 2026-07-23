@@ -34,9 +34,18 @@ return [
         'ios_latest_version' => getenv('SGI_MOVIL_IOS_LATEST_VERSION') ?: '',
         'ios_store_url' => getenv('SGI_MOVIL_IOS_STORE_URL') ?: '',
     ],
-    'expo' => [
-        'project_id' => getenv('SGI_EXPO_PROJECT_ID') ?: '02ebadc9-b7d3-4d7e-a58e-7ace8961e8bd',
-        'experience_id' => getenv('SGI_EXPO_EXPERIENCE_ID') ?: '@cbesada/sgi-movil',
+    'push' => [
+        'fcm' => [
+            'service_account_file' => getenv('GOOGLE_APPLICATION_CREDENTIALS')
+                ?: (getenv('SGI_FCM_SERVICE_ACCOUNT_FILE') ?: ''),
+            'project_id' => getenv('SGI_FCM_PROJECT_ID') ?: '',
+        ],
+        'apns' => [
+            'key_file' => getenv('SGI_APNS_KEY_FILE') ?: '',
+            'key_id' => getenv('SGI_APNS_KEY_ID') ?: '',
+            'team_id' => getenv('SGI_APNS_TEAM_ID') ?: '',
+            'topic' => getenv('SGI_APNS_TOPIC') ?: 'ar.com.raei.sgi',
+        ],
     ],
     'password_reset' => [
         'public_base_url' => getenv('SGI_PASSWORD_RESET_URL') ?: 'https://restartpassword.sgi.raei.com.ar',

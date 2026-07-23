@@ -41,7 +41,9 @@ if ($user === false) {
 }
 
 $tok = $pdo->prepare(
-    'SELECT ExpoPushToken, Plataforma, ActualizadoEn FROM MovilPushToken WHERE UsuarioId = :uid'
+    'SELECT ExpoPushToken AS PushToken, Plataforma, ActualizadoEn
+     FROM MovilPushToken
+     WHERE UsuarioId = :uid'
 );
 $tok->execute(['uid' => $user['UsuarioId']]);
 $tokens = $tok->fetchAll(PDO::FETCH_ASSOC);

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/push_expo.php';
+require_once __DIR__ . '/push_native.php';
 
 function fichadas_push_ensure_log_table(PDO $pdo): void
 {
@@ -57,7 +57,8 @@ function fichadas_push_procesar(
             fg.Id AS FichadaId,
             fg.Fecha,
             u.Id AS UsuarioId,
-            mpt.ExpoPushToken
+            mpt.ExpoPushToken,
+            mpt.Plataforma
         FROM FichadasGlobal fg
         INNER JOIN Personal p
             ON CAST(fg.Legajo AS UNSIGNED) = p.Legajo
@@ -96,6 +97,7 @@ function fichadas_push_procesar(
         $dt = new DateTimeImmutable((string) $row['Fecha']);
         $messageItems[] = [
             'token' => (string) $row['ExpoPushToken'],
+            'plataforma' => (string) $row['Plataforma'],
             'fecha' => $dt->format('d/m/Y'),
             'hora' => $dt->format('H:i'),
         ];
@@ -119,10 +121,10 @@ function fichadas_push_procesar(
         ];
     }
 
-    $messages = expo_push_build_fichada_messages($messageItems);
-    $push = expo_push_send_batch($messages);
+    $messages = push_native_build_fichada_messages($messageItems);
+    $push = push_native_send_batch($messages);
 
-    if ($messages !== []) {
+    if ($messages !== [] && (int) ($push['sent'] ?? 0) === count($messages)) {
         fichadas_push_insert_logs($pdo, $logKeys);
     }
 

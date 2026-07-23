@@ -1,7 +1,7 @@
 <?php
 /**
- * Uso (CLI): php tools/enviar_novedad_email.php email@dominio.com "Título" "Cuerpo"
- * Envía novedad + push al usuario activo con ese mail (Usuarios.Mail).
+ * Uso (CLI): php tools/enviar_novedad_email.php email@dominio.com "Título" "Cuerpo" [--verificar]
+ * Envía novedad + push nativo FCM/APNs al usuario activo con ese mail (Usuarios.Mail).
  */
 declare(strict_types=1);
 
@@ -13,9 +13,10 @@ if (PHP_SAPI !== 'cli') {
 $email = strtolower(trim((string) ($argv[1] ?? '')));
 $titulo = trim((string) ($argv[2] ?? ''));
 $cuerpo = trim((string) ($argv[3] ?? ''));
+$verificar = in_array('--verificar', array_slice($argv, 4), true);
 
 if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL) || $titulo === '' || $cuerpo === '') {
-    fwrite(STDERR, "Uso: php enviar_novedad_email.php <email> \"<titulo>\" \"<cuerpo>\"\n");
+    fwrite(STDERR, "Uso: php enviar_novedad_email.php <email> \"<titulo>\" \"<cuerpo>\" [--verificar]\n");
     exit(1);
 }
 
@@ -68,10 +69,17 @@ $out = [
 ] + $result;
 
 if (($result['pushEnviados'] ?? 0) === 0) {
-    $out['aviso'] =
-        'Novedad guardada, pero pushEnviados=0: el usuario no tiene token Expo en MovilPushToken '
-        . '(abrir la app APK, iniciar sesión y aceptar notificaciones).';
+    $pushErrores = $result['pushErrores'] ?? [];
+    $out['aviso'] = $pushErrores !== []
+        ? 'Novedad guardada, pero el proveedor rechazó el push: ' . implode(' | ', $pushErrores)
+        : 'Novedad guardada, pero el usuario no tiene un token nativo FCM/APNs válido.';
     fwrite(STDERR, $out['aviso'] . "\n");
+}
+
+if ($verificar) {
+    $out['verificacionProveedor'] = $result['pushResultados'] ?? [];
+    $out['aceptadoPorProveedor'] =
+        ($result['pushEnviados'] ?? 0) > 0 && ($result['pushErrores'] ?? []) === [];
 }
 
 echo json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n";

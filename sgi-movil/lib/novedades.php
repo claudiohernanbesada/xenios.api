@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/push_expo.php';
+require_once __DIR__ . '/push_native.php';
 
 function novedades_new_id(): string
 {
@@ -158,8 +158,8 @@ function novedades_crear_y_enviar(
     $push = ['sent' => 0, 'errors' => []];
     try {
         $tokens = novedades_tokens_por_usuarios($pdo, $usuarioIds);
-        $messages = expo_push_build_novedad_messages($tokens, $novedadId, $titulo, $cuerpo);
-        $push = expo_push_send_batch($messages);
+        $messages = push_native_build_novedad_messages($tokens, $novedadId, $titulo, $cuerpo);
+        $push = push_native_send_batch($messages);
     } catch (Throwable $e) {
         error_log('[novedades] Novedad registrada sin push. NovedadId=' . $novedadId . ' Error=' . $e->getMessage());
         $push = [
@@ -172,6 +172,7 @@ function novedades_crear_y_enviar(
         'novedadId' => $novedadId,
         'destinatarios' => count($usuarioIds),
         'pushEnviados' => (int) ($push['sent'] ?? 0),
+        'pushResultados' => $push['providerResults'] ?? [],
         'pushErrores' => $push['errors'] ?? [],
     ];
 }
@@ -185,44 +186,84 @@ function novedades_tokens_por_usuarios(PDO $pdo, array $usuarioIds): array
 
     $placeholders = implode(',', array_fill(0, count($usuarioIds), '?'));
     $stmt = $pdo->prepare(
-        "SELECT ExpoPushToken FROM MovilPushToken WHERE UsuarioId IN ($placeholders)"
+        "SELECT ExpoPushToken AS token, Plataforma AS plataforma
+         FROM MovilPushToken
+         WHERE UsuarioId IN ($placeholders)"
     );
     $stmt->execute(array_values($usuarioIds));
 
-    return $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
 function novedades_registrar_token(
     PDO $pdo,
     string $usuarioId,
-    string $expoToken,
+    string $pushToken,
     ?string $plataforma
 ): void {
-    $expoToken = trim($expoToken);
-    if ($expoToken === '') {
+    $pushToken = trim($pushToken);
+    if ($pushToken === '') {
         return;
     }
+    $plataforma = novedades_normalizar_plataforma($plataforma);
 
-    $ahora = (new DateTimeImmutable('now'))->format('Y-m-d H:i:s');
-    $del = $pdo->prepare(
-        'DELETE FROM MovilPushToken WHERE UsuarioId = :uid OR ExpoPushToken = :token'
-    );
-    $del->execute([
-        'uid' => $usuarioId,
-        'token' => $expoToken,
-    ]);
+    $inicioTransaccion = !$pdo->inTransaction();
+    if ($inicioTransaccion) {
+        $pdo->beginTransaction();
+    }
 
-    $ins = $pdo->prepare(
-        'INSERT INTO MovilPushToken (Id, UsuarioId, ExpoPushToken, Plataforma, ActualizadoEn)
-         VALUES (:id, :uid, :token, :plat, :act)'
-    );
-    $ins->execute([
-        'id' => novedades_new_id(),
-        'uid' => $usuarioId,
-        'token' => $expoToken,
-        'plat' => $plataforma,
-        'act' => $ahora,
-    ]);
+    try {
+        $ahora = (new DateTimeImmutable('now'))->format('Y-m-d H:i:s');
+        $del = $pdo->prepare(
+            'DELETE FROM MovilPushToken WHERE UsuarioId = :uid OR ExpoPushToken = :token'
+        );
+        $del->execute([
+            'uid' => $usuarioId,
+            'token' => $pushToken,
+        ]);
+
+        $ins = $pdo->prepare(
+            'INSERT INTO MovilPushToken (Id, UsuarioId, ExpoPushToken, Plataforma, ActualizadoEn)
+             VALUES (:id, :uid, :token, :plat, :act)'
+        );
+        $ins->execute([
+            'id' => novedades_new_id(),
+            'uid' => $usuarioId,
+            'token' => $pushToken,
+            'plat' => $plataforma,
+            'act' => $ahora,
+        ]);
+
+        if ($inicioTransaccion) {
+            $pdo->commit();
+        }
+    } catch (Throwable $e) {
+        if ($inicioTransaccion && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
+}
+
+function novedades_normalizar_plataforma(?string $plataforma): ?string
+{
+    $valor = strtolower(trim((string) $plataforma));
+    if ($valor === '') {
+        return null;
+    }
+
+    $base = explode(':', $valor, 2)[0];
+    if ($base === 'android') {
+        return 'android';
+    }
+    if ($base === 'ios' || $base === 'ios-production') {
+        return 'ios-production';
+    }
+    if ($base === 'ios-development') {
+        return 'ios-development';
+    }
+
+    return null;
 }
 
 /** @return list<array<string, mixed>> */

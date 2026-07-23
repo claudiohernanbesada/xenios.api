@@ -531,7 +531,7 @@ function novedades_require_tables(PDO $pdo, array $config): void
     exit;
 }
 
-// POST /push/registrar-token — guarda token Expo del dispositivo
+// POST /push/registrar-token — guarda el token nativo FCM/APNs del dispositivo
 function handle_push_registrar_token(PDO $pdo, array $config): void
 {
     $auth = require_auth($pdo, $config);
@@ -539,9 +539,16 @@ function handle_push_registrar_token(PDO $pdo, array $config): void
     novedades_require_tables($pdo, $config);
 
     $body = json_decode(file_get_contents('php://input') ?: '{}', true) ?? [];
-    $token = trim((string) ($body['expoPushToken'] ?? ''));
+    $token = trim((string) ($body['pushToken'] ?? ''));
+    $plataforma = novedades_normalizar_plataforma(
+        isset($body['plataforma']) ? (string) $body['plataforma'] : null
+    );
     if ($token === '') {
-        json_response(['message' => 'expoPushToken requerido'], 400, $config);
+        json_response(['message' => 'pushToken requerido'], 400, $config);
+        return;
+    }
+    if ($plataforma === null || !push_native_token_valido($token, $plataforma)) {
+        json_response(['message' => 'Token nativo FCM/APNs inválido'], 400, $config);
         return;
     }
 
@@ -549,7 +556,7 @@ function handle_push_registrar_token(PDO $pdo, array $config): void
         $pdo,
         (string) $auth['user']['Id'],
         $token,
-        isset($body['plataforma']) ? (string) $body['plataforma'] : null
+        $plataforma
     );
 
     json_response(['ok' => true], 200, $config);
