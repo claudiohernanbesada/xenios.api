@@ -3,17 +3,23 @@
 declare(strict_types=1);
 
 // Config central de la API móvil — acá se arma el array que usa el resto
-require_once dirname(__DIR__) . '/_inc/credenciales.php';
 require_once dirname(__DIR__) . '/_inc/rutas_archivos.php';
 require_once dirname(__DIR__) . '/_inc/api_tokens.php';
 
-return [
-    // Datos de conexión MySQL (vienen de credenciales.php)
-    'db' => [
+$dbCredentials = (static function (): array {
+    require dirname(__DIR__) . '/_inc/credenciales.php';
+
+    return [
         'host' => $servidor,
         'name' => $baseDeDatos,
         'user' => $usuario,
         'pass' => $contrasena,
+    ];
+})();
+
+return [
+    // Datos de conexión MySQL (vienen de credenciales.php)
+    'db' => $dbCredentials + [
         'charset' => 'utf8mb4',
     ],
     // Secret del JWT — cambiarlo en prod, obvio
