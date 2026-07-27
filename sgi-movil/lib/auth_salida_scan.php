@@ -118,7 +118,8 @@ function handle_auth_salida_scan(PDO $pdo, array $config): void
             'UPDATE AuthSalida
              SET FechaHoraSalidaEfectiva = :fecha,
                  IpSalidaEfectiva = :ip,
-                 UserAuthSalida = :usuario,
+                 DateAuthScanQrSalida = :fecha,
+                 UserAuthScanQrSalida = :usuario,
                  DateUpdate = :fecha,
                  UserUpdate = :usuario
              WHERE Id = :id
@@ -160,7 +161,8 @@ function handle_auth_salida_scan(PDO $pdo, array $config): void
         'UPDATE AuthSalida
          SET FechaHoraRegresoEfectiva = :fecha,
              IpRegresoEfectiva = :ip,
-             UserAuthSalida = :usuario,
+             DateAuthScanQrSRegreso = :fecha,
+             UserAuthScanQrRegreso = :usuario,
              DateUpdate = :fecha,
              UserUpdate = :usuario
          WHERE Id = :id
