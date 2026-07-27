@@ -71,6 +71,7 @@ try {
     };
 // Cualquier excepción sin atrapar en un handler → 500 genérico
 } catch (Throwable $e) {
+    error_log('[sgi-movil] Error no controlado en ' . $method . ' ' . $path . ': ' . $e->getMessage());
     json_response(['message' => 'Error interno del servidor'], 500, $config);
 }
 

@@ -206,6 +206,33 @@ function novedades_registrar_token(
         return;
     }
     $plataforma = novedades_normalizar_plataforma($plataforma);
+    $ahora = (new DateTimeImmutable('now'))->format('Y-m-d H:i:s');
+
+    // El registro normal es idempotente: no borrar e insertar si el dispositivo
+    // ya está asociado al mismo usuario.
+    $existing = $pdo->prepare(
+        'SELECT Id FROM MovilPushToken
+         WHERE UsuarioId = :uid AND ExpoPushToken = :token
+         LIMIT 1'
+    );
+    $existing->execute([
+        'uid' => $usuarioId,
+        'token' => $pushToken,
+    ]);
+    $existingId = $existing->fetchColumn();
+    if (is_string($existingId) && $existingId !== '') {
+        $update = $pdo->prepare(
+            'UPDATE MovilPushToken
+             SET Plataforma = :plat, ActualizadoEn = :act
+             WHERE Id = :id'
+        );
+        $update->execute([
+            'id' => $existingId,
+            'plat' => $plataforma,
+            'act' => $ahora,
+        ]);
+        return;
+    }
 
     $inicioTransaccion = !$pdo->inTransaction();
     if ($inicioTransaccion) {
@@ -213,7 +240,6 @@ function novedades_registrar_token(
     }
 
     try {
-        $ahora = (new DateTimeImmutable('now'))->format('Y-m-d H:i:s');
         $del = $pdo->prepare(
             'DELETE FROM MovilPushToken WHERE UsuarioId = :uid OR ExpoPushToken = :token'
         );
