@@ -119,9 +119,7 @@ function handle_auth_salida_scan(PDO $pdo, array $config): void
              SET FechaHoraSalidaEfectiva = :fecha,
                  IpSalidaEfectiva = :ip,
                  DateAuthScanQrSalida = :fecha,
-                 UserAuthScanQrSalida = :usuario,
-                 DateUpdate = :fecha,
-                 UserUpdate = :usuario
+                 UserAuthScanQrSalida = :usuario
              WHERE Id = :id
                AND Estado = 1
                AND FechaHoraSalidaEfectiva IS NULL'
@@ -162,9 +160,7 @@ function handle_auth_salida_scan(PDO $pdo, array $config): void
          SET FechaHoraRegresoEfectiva = :fecha,
              IpRegresoEfectiva = :ip,
              DateAuthScanQrSRegreso = :fecha,
-             UserAuthScanQrRegreso = :usuario,
-             DateUpdate = :fecha,
-             UserUpdate = :usuario
+             UserAuthScanQrRegreso = :usuario
          WHERE Id = :id
            AND Estado = 1
            AND FechaHoraSalidaEfectiva IS NOT NULL
