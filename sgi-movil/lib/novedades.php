@@ -38,6 +38,16 @@ function novedades_tables_exist(PDO $pdo): bool
     return novedades_missing_tables($pdo) === [];
 }
 
+function novedades_timezone(): DateTimeZone
+{
+    return new DateTimeZone('America/Argentina/Buenos_Aires');
+}
+
+function novedades_now_string(): string
+{
+    return (new DateTimeImmutable('now', novedades_timezone()))->format('Y-m-d H:i:s');
+}
+
 /** Usuarios activos con rol EMPLEADO (o todos los del array si se pasa). */
 function novedades_resolve_destinatarios(PDO $pdo, ?array $usuarioIds): array
 {
@@ -124,7 +134,7 @@ function novedades_crear_y_enviar(
     array $usuarioIds
 ): array {
     $novedadId = novedades_new_id();
-    $ahora = (new DateTimeImmutable('now'))->format('Y-m-d H:i:s');
+    $ahora = novedades_now_string();
 
     $pdo->beginTransaction();
     try {
@@ -206,7 +216,7 @@ function novedades_registrar_token(
         return;
     }
     $plataforma = novedades_normalizar_plataforma($plataforma);
-    $ahora = (new DateTimeImmutable('now'))->format('Y-m-d H:i:s');
+    $ahora = novedades_now_string();
 
     // El registro normal es idempotente: no borrar e insertar si el dispositivo
     // ya está asociado al mismo usuario.
@@ -346,7 +356,7 @@ function novedades_marcar_leida(PDO $pdo, string $usuarioId, string $novedadId):
         'UPDATE MovilNovedadUsuario SET LeidaEn = :leida
          WHERE UsuarioId = :uid AND NovedadId = :nid AND LeidaEn IS NULL'
     );
-    $ahora = (new DateTimeImmutable('now'))->format('Y-m-d H:i:s');
+    $ahora = novedades_now_string();
     $stmt->execute(['leida' => $ahora, 'uid' => $usuarioId, 'nid' => $novedadId]);
 
     return $stmt->rowCount() > 0;
@@ -354,7 +364,7 @@ function novedades_marcar_leida(PDO $pdo, string $usuarioId, string $novedadId):
 
 function novedades_format_datetime(string $value): string
 {
-    $dt = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $value);
+    $dt = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $value, novedades_timezone());
     if ($dt) {
         return $dt->format('c');
     }
