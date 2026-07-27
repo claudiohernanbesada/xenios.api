@@ -34,6 +34,25 @@ function push_native_token_valido(string $token, string $plataforma): bool
     return false;
 }
 
+function push_native_ca_bundle(): ?string
+{
+    $candidates = [
+        getenv('CURL_CA_BUNDLE') ?: '',
+        getenv('SSL_CERT_FILE') ?: '',
+        ini_get('curl.cainfo') ?: '',
+        ini_get('openssl.cafile') ?: '',
+    ];
+
+    foreach ($candidates as $candidate) {
+        $path = trim((string) $candidate);
+        if ($path !== '' && is_file($path)) {
+            return $path;
+        }
+    }
+
+    return null;
+}
+
 /**
  * @param list<array{token:string, plataforma:string}> $registrations
  * @return list<array<string, mixed>>
@@ -178,6 +197,12 @@ function push_http_post(string $url, array $headers, string $body, bool $http2 =
             return $length;
         },
     ]);
+
+    $caBundle = push_native_ca_bundle();
+    if ($caBundle !== null) {
+        curl_setopt($curl, CURLOPT_CAINFO, $caBundle);
+    }
+
     if ($http2 && defined('CURL_HTTP_VERSION_2_0')) {
         curl_setopt($curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_0);
     }
