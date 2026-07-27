@@ -1,7 +1,7 @@
 RewriteEngine On
 RewriteBase /sgi-movil/
 
-# WAMP/Apache: reenviar Authorization a PHP (si no, login OK pero /auth/me dice "Token requerido")
+# Apache/proxy: reenviar Authorization a PHP (si no, login OK pero /auth/me dice "Token requerido")
 RewriteCond %{HTTP:Authorization} .
 RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 
