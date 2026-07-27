@@ -1,3 +1,3 @@
 <?php 
-echo "SGI SERVER";
+echo "SGI SERVER NV";
 ?>
