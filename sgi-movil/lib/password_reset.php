@@ -90,12 +90,19 @@ function password_reset_request(PDO $pdo, array $config, string $correo): array
         $plain = password_reset_create_token($pdo, (string) $user['Id'], (int) $pr['ttl_seconds']);
         $link = password_reset_build_link($pr, $plain);
         $nombre = trim((string) $user['Nombre']);
-        password_reset_send_mail($pr, (string) $user['Mail'], $nombre !== '' ? $nombre : 'Usuario', $link);
+        $sent = password_reset_send_mail($pr, (string) $user['Mail'], $nombre !== '' ? $nombre : 'Usuario', $link);
+        if (!$sent) {
+            error_log('[password_reset] No se pudo enviar el correo de recuperacion a ' . (string) $user['Mail']);
+            return [
+                'ok' => false,
+                'message' => 'No se pudo enviar el correo de recuperacion. Intenta nuevamente en unos minutos o avisa a Sistemas.',
+            ];
+        }
     }
 
     return [
         'ok' => true,
-        'message' => 'Si el correo esta registrado, recibiras un enlace para restablecer la contrasena.',
+        'message' => 'Solicitud enviada. Si el correo esta registrado, recibiras un enlace para restablecer la contrasena.',
     ];
 }
 
