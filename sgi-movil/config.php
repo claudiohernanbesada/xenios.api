@@ -8,16 +8,18 @@ require_once dirname(__DIR__) . '/_inc/api_tokens.php';
 
 date_default_timezone_set('America/Argentina/Buenos_Aires');
 
-function sgi_movil_first_existing_file(array $paths): string
-{
-    foreach ($paths as $path) {
-        $path = trim((string) $path);
-        if ($path !== '' && is_file($path)) {
-            return $path;
+if (!function_exists('sgi_movil_first_existing_file')) {
+    function sgi_movil_first_existing_file(array $paths): string
+    {
+        foreach ($paths as $path) {
+            $path = trim((string) $path);
+            if ($path !== '' && is_file($path)) {
+                return $path;
+            }
         }
-    }
 
-    return '';
+        return '';
+    }
 }
 
 $dbCredentials = (static function (): array {
