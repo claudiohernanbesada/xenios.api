@@ -62,6 +62,7 @@ try {
         $method === 'GET' && $path === '/asistencia' => handle_asistencia($pdo, $config),
         $method === 'GET' && $path === '/vacaciones' => handle_vacaciones($pdo, $config),
         $method === 'POST' && $path === '/push/registrar-token' => handle_push_registrar_token($pdo, $config),
+        $method === 'POST' && $path === '/push/fichadas/evento' => handle_push_fichadas_evento($pdo, $config),
         $method === 'POST' && $path === '/push/fichadas/procesar' => handle_push_fichadas_procesar($pdo, $config),
         $method === 'GET' && $path === '/novedades' => handle_novedades_list($pdo, $config),
         $method === 'GET' && $path === '/usuarios' => handle_usuarios_list($pdo, $config),
@@ -588,6 +589,30 @@ function handle_push_fichadas_procesar(PDO $pdo, array $config): void
 }
 
 // GET /usuarios — listado de usuarios activos con sus áreas
+// POST /push/fichadas/evento - registra recepcion/apertura de una notificacion de fichada
+function handle_push_fichadas_evento(PDO $pdo, array $config): void
+{
+    $auth = require_auth($pdo, $config);
+    require_any_role($auth['roles'], $config);
+
+    $body = json_decode(file_get_contents('php://input') ?: '{}', true) ?? [];
+    $fichadaId = isset($body['fichadaId']) ? (int) $body['fichadaId'] : 0;
+    $evento = trim((string) ($body['evento'] ?? ''));
+    if ($fichadaId <= 0 || !in_array($evento, ['recibida', 'visualizada'], true)) {
+        json_response(['message' => 'Evento de fichada invalido'], 400, $config);
+        return;
+    }
+
+    $ok = fichadas_push_registrar_evento_usuario(
+        $pdo,
+        (string) $auth['user']['Id'],
+        $fichadaId,
+        $evento
+    );
+
+    json_response(['ok' => $ok], 200, $config);
+}
+
 function handle_usuarios_list(PDO $pdo, array $config): void
 {
     if (validar_api_key($config)) {

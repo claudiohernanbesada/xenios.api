@@ -106,11 +106,15 @@ function push_native_build_fichada_messages(array $items): array
         $messages[] = [
             'token' => $token,
             'plataforma' => $plataforma,
+            'fichadaId' => (int) ($item['fichadaId'] ?? 0),
+            'usuarioId' => (string) ($item['usuarioId'] ?? ''),
             'title' => 'SGI - RAEI',
             'body' => "Hemos registrado tu fichada del {$fecha} a las {$hora} hs. con éxito!",
             'channelId' => 'fichadas',
             'data' => [
+                'tipo' => 'fichada',
                 'screen' => 'fichadas',
+                'fichadaId' => (string) ($item['fichadaId'] ?? ''),
             ],
         ];
     }
@@ -149,6 +153,12 @@ function push_native_send_batch(array $messages): array
 
         $result['plataforma'] = $plataforma;
         $result['tokenSuffix'] = substr($token, -8);
+        if (isset($message['fichadaId'])) {
+            $result['fichadaId'] = (int) $message['fichadaId'];
+        }
+        if (isset($message['usuarioId'])) {
+            $result['usuarioId'] = (string) $message['usuarioId'];
+        }
         $results[] = $result;
         if (($result['accepted'] ?? false) === true) {
             $sent++;

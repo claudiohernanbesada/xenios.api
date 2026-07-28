@@ -10,11 +10,45 @@ function fichadas_push_ensure_log_table(PDO $pdo): void
             FichadaId INT NOT NULL,
             UsuarioId CHAR(36) NOT NULL,
             EnviadoEn DATETIME NOT NULL,
+            Provider VARCHAR(20) NULL,
+            ProviderMessageId VARCHAR(255) NULL,
+            Plataforma VARCHAR(30) NULL,
+            TokenSuffix VARCHAR(16) NULL,
+            EstadoEnvio VARCHAR(20) NULL,
+            ErrorEnvio TEXT NULL,
+            RecibidoEn DATETIME NULL,
+            VisualizadoEn DATETIME NULL,
             PRIMARY KEY (FichadaId, UsuarioId),
             INDEX IX_MovilFichadaPushLog_UsuarioId (UsuarioId),
             INDEX IX_MovilFichadaPushLog_EnviadoEn (EnviadoEn)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
+
+    fichadas_push_ensure_log_column($pdo, 'Provider', 'VARCHAR(20) NULL');
+    fichadas_push_ensure_log_column($pdo, 'ProviderMessageId', 'VARCHAR(255) NULL');
+    fichadas_push_ensure_log_column($pdo, 'Plataforma', 'VARCHAR(30) NULL');
+    fichadas_push_ensure_log_column($pdo, 'TokenSuffix', 'VARCHAR(16) NULL');
+    fichadas_push_ensure_log_column($pdo, 'EstadoEnvio', 'VARCHAR(20) NULL');
+    fichadas_push_ensure_log_column($pdo, 'ErrorEnvio', 'TEXT NULL');
+    fichadas_push_ensure_log_column($pdo, 'RecibidoEn', 'DATETIME NULL');
+    fichadas_push_ensure_log_column($pdo, 'VisualizadoEn', 'DATETIME NULL');
+}
+
+function fichadas_push_ensure_log_column(PDO $pdo, string $column, string $definition): void
+{
+    $stmt = $pdo->prepare(
+        "SELECT COUNT(*)
+         FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = 'MovilFichadaPushLog'
+           AND COLUMN_NAME = :column"
+    );
+    $stmt->execute(['column' => $column]);
+    if ((int) $stmt->fetchColumn() > 0) {
+        return;
+    }
+
+    $pdo->exec("ALTER TABLE MovilFichadaPushLog ADD COLUMN {$column} {$definition}");
 }
 
 function fichadas_push_has_token_table(PDO $pdo): bool
@@ -76,6 +110,7 @@ function fichadas_push_procesar(
         LEFT JOIN MovilFichadaPushLog l
             ON l.FichadaId = fg.Id
            AND l.UsuarioId = u.Id
+           AND COALESCE(l.EstadoEnvio, 'enviado') = 'enviado'
         WHERE fg.Estado = 1
           AND fg.Fecha >= :desde
           AND l.FichadaId IS NULL
@@ -104,6 +139,8 @@ function fichadas_push_procesar(
             'plataforma' => (string) $row['Plataforma'],
             'fecha' => $dt->format('d/m/Y'),
             'hora' => $dt->format('H:i'),
+            'fichadaId' => (int) $row['FichadaId'],
+            'usuarioId' => (string) $row['UsuarioId'],
         ];
 
         $key = (int) $row['FichadaId'] . '|' . (string) $row['UsuarioId'];
@@ -127,10 +164,7 @@ function fichadas_push_procesar(
 
     $messages = push_native_build_fichada_messages($messageItems);
     $push = push_native_send_batch($messages);
-
-    if ($messages !== [] && (int) ($push['sent'] ?? 0) === count($messages)) {
-        fichadas_push_insert_logs($pdo, $logKeys);
-    }
+    fichadas_push_guardar_resultados_envio($pdo, $logKeys, $push['providerResults'] ?? []);
 
     return [
         'ok' => (bool) ($push['ok'] ?? true),
@@ -159,4 +193,82 @@ function fichadas_push_insert_logs(PDO $pdo, array $logKeys): void
         $log['enviadoEn'] = $enviadoEn;
         $stmt->execute($log);
     }
+}
+
+/** @param list<array<string, mixed>> $providerResults */
+function fichadas_push_guardar_resultados_envio(PDO $pdo, array $logKeys, array $providerResults): void
+{
+    if ($logKeys === []) {
+        return;
+    }
+
+    $resultsByKey = [];
+    foreach ($providerResults as $result) {
+        $fichadaId = (int) ($result['fichadaId'] ?? 0);
+        $usuarioId = (string) ($result['usuarioId'] ?? '');
+        if ($fichadaId <= 0 || $usuarioId === '') {
+            continue;
+        }
+        $resultsByKey["{$fichadaId}|{$usuarioId}"] = $result;
+    }
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO MovilFichadaPushLog
+            (FichadaId, UsuarioId, EnviadoEn, Provider, ProviderMessageId, Plataforma, TokenSuffix, EstadoEnvio, ErrorEnvio)
+         VALUES
+            (:fichadaId, :usuarioId, :enviadoEn, :provider, :providerMessageId, :plataforma, :tokenSuffix, :estadoEnvio, :errorEnvio)
+         ON DUPLICATE KEY UPDATE
+            EnviadoEn = VALUES(EnviadoEn),
+            Provider = VALUES(Provider),
+            ProviderMessageId = VALUES(ProviderMessageId),
+            Plataforma = VALUES(Plataforma),
+            TokenSuffix = VALUES(TokenSuffix),
+            EstadoEnvio = VALUES(EstadoEnvio),
+            ErrorEnvio = VALUES(ErrorEnvio)'
+    );
+    $enviadoEn = (new DateTimeImmutable('now', new DateTimeZone('America/Argentina/Buenos_Aires')))
+        ->format('Y-m-d H:i:s');
+
+    foreach ($logKeys as $key => $log) {
+        $result = $resultsByKey[$key] ?? [];
+        $accepted = ($result['accepted'] ?? false) === true;
+        $stmt->execute([
+            'fichadaId' => (int) $log['fichadaId'],
+            'usuarioId' => (string) $log['usuarioId'],
+            'enviadoEn' => $enviadoEn,
+            'provider' => (string) ($result['provider'] ?? ''),
+            'providerMessageId' => (string) ($result['messageId'] ?? ''),
+            'plataforma' => (string) ($result['plataforma'] ?? ''),
+            'tokenSuffix' => (string) ($result['tokenSuffix'] ?? ''),
+            'estadoEnvio' => $accepted ? 'enviado' : 'error',
+            'errorEnvio' => $accepted ? null : (string) ($result['error'] ?? 'No se pudo enviar el push'),
+        ]);
+    }
+}
+
+function fichadas_push_registrar_evento_usuario(PDO $pdo, string $usuarioId, int $fichadaId, string $evento): bool
+{
+    if ($fichadaId <= 0 || !in_array($evento, ['recibida', 'visualizada'], true)) {
+        return false;
+    }
+
+    fichadas_push_ensure_log_table($pdo);
+
+    $column = $evento === 'recibida' ? 'RecibidoEn' : 'VisualizadoEn';
+    $fecha = (new DateTimeImmutable('now', new DateTimeZone('America/Argentina/Buenos_Aires')))
+        ->format('Y-m-d H:i:s');
+    $stmt = $pdo->prepare(
+        "UPDATE MovilFichadaPushLog
+         SET {$column} = COALESCE({$column}, :fecha)
+         WHERE FichadaId = :fichadaId
+           AND UsuarioId = :usuarioId
+           AND COALESCE(EstadoEnvio, 'enviado') = 'enviado'"
+    );
+    $stmt->execute([
+        'fecha' => $fecha,
+        'fichadaId' => $fichadaId,
+        'usuarioId' => $usuarioId,
+    ]);
+
+    return $stmt->rowCount() > 0;
 }
