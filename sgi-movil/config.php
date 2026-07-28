@@ -8,6 +8,18 @@ require_once dirname(__DIR__) . '/_inc/api_tokens.php';
 
 date_default_timezone_set('America/Argentina/Buenos_Aires');
 
+function sgi_movil_first_existing_file(array $paths): string
+{
+    foreach ($paths as $path) {
+        $path = trim((string) $path);
+        if ($path !== '' && is_file($path)) {
+            return $path;
+        }
+    }
+
+    return '';
+}
+
 $dbCredentials = (static function (): array {
     require dirname(__DIR__) . '/_inc/credenciales.php';
 
@@ -44,8 +56,13 @@ return [
     ],
     'push' => [
         'fcm' => [
-            'service_account_file' => getenv('GOOGLE_APPLICATION_CREDENTIALS')
-                ?: (getenv('SGI_FCM_SERVICE_ACCOUNT_FILE') ?: ''),
+            'service_account_file' => sgi_movil_first_existing_file([
+                getenv('GOOGLE_APPLICATION_CREDENTIALS') ?: '',
+                getenv('SGI_FCM_SERVICE_ACCOUNT_FILE') ?: '',
+                '/etc/sgi/firebase-service-account.json',
+                dirname(__DIR__) . '/firebase-service-account.json',
+                dirname(__DIR__) . '/_private/firebase-service-account.json',
+            ]),
             'project_id' => getenv('SGI_FCM_PROJECT_ID') ?: '',
         ],
         'apns' => [
