@@ -51,6 +51,8 @@ function fichadas_push_procesar(
 
     $lookbackHours = max(1, min($lookbackHours, 168));
     $limit = max(1, min($limit, 500));
+    $now = new DateTimeImmutable('now', new DateTimeZone('America/Argentina/Buenos_Aires'));
+    $desde = $now->sub(new DateInterval("PT{$lookbackHours}H"))->format('Y-m-d H:i:s');
 
     $sql = "
         SELECT
@@ -75,12 +77,14 @@ function fichadas_push_procesar(
             ON l.FichadaId = fg.Id
            AND l.UsuarioId = u.Id
         WHERE fg.Estado = 1
-          AND fg.Fecha >= DATE_SUB(NOW(), INTERVAL {$lookbackHours} HOUR)
+          AND fg.Fecha >= :desde
           AND l.FichadaId IS NULL
         ORDER BY fg.Fecha ASC
         LIMIT {$limit}";
 
-    $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute(['desde' => $desde]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     if ($rows === []) {
         return [
             'ok' => true,
@@ -133,6 +137,7 @@ function fichadas_push_procesar(
         'fichadasDetectadas' => count($logKeys),
         'pushEnviados' => (int) ($push['sent'] ?? 0),
         'usuariosNotificados' => count($logKeys),
+        'pushResultados' => $push['providerResults'] ?? [],
         'pushErrores' => $push['errors'] ?? [],
     ];
 }
@@ -146,9 +151,12 @@ function fichadas_push_insert_logs(PDO $pdo, array $logKeys): void
 
     $stmt = $pdo->prepare(
         'INSERT IGNORE INTO MovilFichadaPushLog (FichadaId, UsuarioId, EnviadoEn)
-         VALUES (:fichadaId, :usuarioId, NOW())'
+         VALUES (:fichadaId, :usuarioId, :enviadoEn)'
     );
+    $enviadoEn = (new DateTimeImmutable('now', new DateTimeZone('America/Argentina/Buenos_Aires')))
+        ->format('Y-m-d H:i:s');
     foreach ($logKeys as $log) {
+        $log['enviadoEn'] = $enviadoEn;
         $stmt->execute($log);
     }
 }

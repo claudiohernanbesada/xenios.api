@@ -6,6 +6,8 @@ declare(strict_types=1);
 require_once dirname(__DIR__) . '/_inc/rutas_archivos.php';
 require_once dirname(__DIR__) . '/_inc/api_tokens.php';
 
+date_default_timezone_set('America/Argentina/Buenos_Aires');
+
 $dbCredentials = (static function (): array {
     require dirname(__DIR__) . '/_inc/credenciales.php';
 
