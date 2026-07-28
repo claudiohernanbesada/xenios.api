@@ -20,6 +20,9 @@ $fcm = is_array($push['fcm'] ?? null) ? $push['fcm'] : [];
 $apns = is_array($push['apns'] ?? null) ? $push['apns'] : [];
 $fcmFile = trim((string) ($fcm['service_account_file'] ?? ''));
 $apnsFile = trim((string) ($apns['key_file'] ?? ''));
+$fcmFileConfigured = $fcmFile !== '';
+$fcmFileExists = $fcmFileConfigured && is_file($fcmFile);
+$fcmFileReadable = $fcmFileExists && is_readable($fcmFile);
 
 $cryptoOk = false;
 if (extension_loaded('openssl') && $apnsFile !== '' && is_file($apnsFile)) {
@@ -33,7 +36,7 @@ if (extension_loaded('openssl') && $apnsFile !== '' && is_file($apnsFile)) {
 
 $curlInfo = function_exists('curl_version') ? curl_version() : [];
 $curlFeatures = (int) ($curlInfo['features'] ?? 0);
-$fcmJson = $fcmFile !== '' && is_file($fcmFile)
+$fcmJson = $fcmFileReadable
     ? json_decode((string) file_get_contents($fcmFile), true)
     : null;
 $fcmCredentialsOk = is_array($fcmJson)
@@ -69,6 +72,9 @@ $result = [
             && !push_native_token_valido('ExponentPushToken[legacy]', 'android'),
     ],
     'fcm' => [
+        'serviceAccountFile' => $fcmFileConfigured ? $fcmFile : null,
+        'serviceAccountExists' => $fcmFileExists,
+        'serviceAccountReadable' => $fcmFileReadable,
         'credentialsConfigured' => $fcmCredentialsOk,
         'projectIdConfigured' => $fcmProjectId !== '',
     ],
