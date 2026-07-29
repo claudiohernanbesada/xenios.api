@@ -51,9 +51,9 @@ return [
     // Clave única para endpoints de administración / sistemas externos (header X-API-KEY)
     'api_key' => sgi_api_token_esperado(),
     'app_version' => [
-        'android_latest_version' => getenv('SGI_MOVIL_ANDROID_LATEST_VERSION') ?: '1.1.20',
+        'android_latest_version' => getenv('SGI_MOVIL_ANDROID_LATEST_VERSION') ?: '1.1.22',
         'android_store_url' => getenv('SGI_MOVIL_ANDROID_STORE_URL') ?: 'https://play.google.com/store/apps/details?id=ar.com.raei.sgi',
-        'ios_latest_version' => getenv('SGI_MOVIL_IOS_LATEST_VERSION') ?: '1.1.20',
+        'ios_latest_version' => getenv('SGI_MOVIL_IOS_LATEST_VERSION') ?: '1.1.22',
         'ios_store_url' => getenv('SGI_MOVIL_IOS_STORE_URL') ?: '',
     ],
     'push' => [

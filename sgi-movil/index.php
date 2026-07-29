@@ -80,17 +80,87 @@ try {
 function handle_app_version(array $config): void
 {
     $versionConfig = $config['app_version'] ?? [];
+    $androidLatestVersion = (string) ($versionConfig['android_latest_version'] ?? '');
+    $androidStoreUrl = (string) ($versionConfig['android_store_url'] ?? '');
+    $androidPlayVersion = fetch_google_play_version($androidStoreUrl);
+
+    if ($androidPlayVersion !== '' && compare_app_versions($androidLatestVersion, $androidPlayVersion) < 0) {
+        $androidLatestVersion = $androidPlayVersion;
+    }
 
     json_response([
         'android' => [
-            'latestVersion' => (string) ($versionConfig['android_latest_version'] ?? ''),
-            'storeUrl' => (string) ($versionConfig['android_store_url'] ?? ''),
+            'latestVersion' => $androidLatestVersion,
+            'storeUrl' => $androidStoreUrl,
         ],
         'ios' => [
             'latestVersion' => (string) ($versionConfig['ios_latest_version'] ?? ''),
             'storeUrl' => (string) ($versionConfig['ios_store_url'] ?? ''),
         ],
     ], 200, $config);
+}
+
+function compare_app_versions(string $left, string $right): int
+{
+    $leftParts = normalize_app_version($left);
+    $rightParts = normalize_app_version($right);
+    $max = max(count($leftParts), count($rightParts));
+
+    for ($i = 0; $i < $max; $i += 1) {
+        $l = $leftParts[$i] ?? 0;
+        $r = $rightParts[$i] ?? 0;
+        if ($l > $r) {
+            return 1;
+        }
+        if ($l < $r) {
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+function normalize_app_version(string $version): array
+{
+    $parts = preg_split('/[.\-]/', $version) ?: [];
+
+    return array_map(
+        static fn(string $part): int => (int) preg_replace('/\D+/', '', $part),
+        $parts
+    );
+}
+
+function fetch_google_play_version(string $storeUrl): string
+{
+    if ($storeUrl === '' || !preg_match('/[?&]id=([^&]+)/', $storeUrl, $matches)) {
+        return '';
+    }
+
+    $packageName = rawurldecode($matches[1]);
+    if ($packageName === '') {
+        return '';
+    }
+
+    $url = 'https://play.google.com/store/apps/details?id=' . rawurlencode($packageName) . '&hl=en&gl=US';
+    $context = stream_context_create([
+        'http' => [
+            'method' => 'GET',
+            'timeout' => 4,
+            'header' => implode("\r\n", [
+                'Accept: text/html',
+                'User-Agent: Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
+            ]),
+        ],
+    ]);
+
+    $html = @file_get_contents($url, false, $context);
+    if (!is_string($html) || $html === '') {
+        return '';
+    }
+
+    return preg_match('/"141":\s*\[\s*\[\s*\[\s*"([^"]+)"/', $html, $versionMatch)
+        ? trim($versionMatch[1])
+        : '';
 }
 
 function handle_recuperar_clave_solicitud(PDO $pdo, array $config): void
