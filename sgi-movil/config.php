@@ -22,6 +22,53 @@ if (!function_exists('sgi_movil_first_existing_file')) {
     }
 }
 
+if (!function_exists('sgi_movil_dotenv_value')) {
+    function sgi_movil_dotenv_value(string $key, array $paths): string
+    {
+        foreach ($paths as $path) {
+            $path = trim((string) $path);
+            if ($path === '' || !is_file($path) || !is_readable($path)) {
+                continue;
+            }
+
+            $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            if ($lines === false) {
+                continue;
+            }
+
+            foreach ($lines as $line) {
+                $line = trim($line);
+                if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '=')) {
+                    continue;
+                }
+
+                [$name, $value] = array_map('trim', explode('=', $line, 2));
+                if ($name !== $key) {
+                    continue;
+                }
+
+                $quote = $value[0] ?? '';
+                if (($quote === '"' || $quote === "'") && str_ends_with($value, $quote)) {
+                    $value = substr($value, 1, -1);
+                }
+
+                return trim($value);
+            }
+        }
+
+        return '';
+    }
+}
+
+$appVersionFromEnvFile = sgi_movil_dotenv_value('EXPO_PUBLIC_APP_VERSION', [
+    getenv('SGI_MOVIL_ENV_FILE') ?: '',
+    __DIR__ . '/.env',
+    dirname(__DIR__) . '/.env',
+    dirname(__DIR__, 2) . '/.env',
+    '/var/www/vhost/apiSgiRAEI/www/apiSgiRAEI/.env',
+]);
+$publishedAppVersion = $appVersionFromEnvFile !== '' ? $appVersionFromEnvFile : '1.0.0';
+
 $dbCredentials = (static function (): array {
     require dirname(__DIR__) . '/_inc/credenciales.php';
 
@@ -51,9 +98,9 @@ return [
     // Clave única para endpoints de administración / sistemas externos (header X-API-KEY)
     'api_key' => sgi_api_token_esperado(),
     'app_version' => [
-        'android_latest_version' => getenv('SGI_MOVIL_ANDROID_LATEST_VERSION') ?: '1.1.22',
+        'android_latest_version' => $publishedAppVersion,
         'android_store_url' => getenv('SGI_MOVIL_ANDROID_STORE_URL') ?: 'https://play.google.com/store/apps/details?id=ar.com.raei.sgi',
-        'ios_latest_version' => getenv('SGI_MOVIL_IOS_LATEST_VERSION') ?: '1.1.22',
+        'ios_latest_version' => $publishedAppVersion,
         'ios_store_url' => getenv('SGI_MOVIL_IOS_STORE_URL') ?: '',
     ],
     'push' => [
