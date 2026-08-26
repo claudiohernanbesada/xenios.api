@@ -88,7 +88,7 @@ function handle_auth_salida_scan(PDO $pdo, array $config): void
     }
 
     $stmt = $pdo->prepare(
-        'SELECT Id, Fecha, Estado, FechaHoraSalidaEfectiva, FechaHoraRegresoEfectiva
+        'SELECT Id, Fecha, FechaRegreso, Estado, FechaHoraSalidaEfectiva, FechaHoraRegresoEfectiva
          FROM AuthSalida
          WHERE Id = :id
          LIMIT 1'
@@ -99,7 +99,7 @@ function handle_auth_salida_scan(PDO $pdo, array $config): void
     $tz = new DateTimeZone('America/Argentina/Buenos_Aires');
     $now = new DateTimeImmutable('now', $tz);
     $today = $now->format('Y-m-d');
-    if (!$row || (int) $row['Estado'] !== 1 || substr((string) $row['Fecha'], 0, 10) !== $today) {
+    if (!$row || (int) $row['Estado'] !== 1) {
         auth_salida_scan_invalid($config);
         return;
     }
@@ -114,6 +114,11 @@ function handle_auth_salida_scan(PDO $pdo, array $config): void
     $nowSql = $now->format('Y-m-d H:i:s');
 
     if (empty($row['FechaHoraSalidaEfectiva'])) {
+        if (substr((string) $row['Fecha'], 0, 10) !== $today) {
+            auth_salida_scan_invalid($config);
+            return;
+        }
+
         $upd = $pdo->prepare(
             'UPDATE AuthSalida
              SET FechaHoraSalidaEfectiva = :fecha,
@@ -122,6 +127,7 @@ function handle_auth_salida_scan(PDO $pdo, array $config): void
                  UserAuthScanQrSalida = :usuario
              WHERE Id = :id
                AND Estado = 1
+               AND DATE(Fecha) = :hoy
                AND FechaHoraSalidaEfectiva IS NULL'
         );
         $upd->execute([
@@ -129,6 +135,7 @@ function handle_auth_salida_scan(PDO $pdo, array $config): void
             'ip' => $ip,
             'usuario' => $usuarioId,
             'id' => $authSalidaId,
+            'hoy' => $today,
         ]);
 
         if ($upd->rowCount() < 1) {
@@ -142,6 +149,11 @@ function handle_auth_salida_scan(PDO $pdo, array $config): void
             'message' => 'Se registró la Salida con éxito!',
             'fechaHora' => $nowSql,
         ], 200, $config);
+        return;
+    }
+
+    if (substr((string) $row['FechaRegreso'], 0, 10) !== $today) {
+        auth_salida_scan_invalid($config);
         return;
     }
 
@@ -163,6 +175,7 @@ function handle_auth_salida_scan(PDO $pdo, array $config): void
              UserAuthScanQrRegreso = :usuario
          WHERE Id = :id
            AND Estado = 1
+           AND DATE(FechaRegreso) = :hoy
            AND FechaHoraSalidaEfectiva IS NOT NULL
            AND FechaHoraRegresoEfectiva IS NULL'
     );
@@ -171,6 +184,7 @@ function handle_auth_salida_scan(PDO $pdo, array $config): void
         'ip' => $ip,
         'usuario' => $usuarioId,
         'id' => $authSalidaId,
+        'hoy' => $today,
     ]);
 
     if ($upd->rowCount() < 1) {
