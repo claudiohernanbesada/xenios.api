@@ -534,7 +534,7 @@ function handle_asistencia(PDO $pdo, array $config): void
     }
     $personalId = strtolower(trim((string) ($_GET['personalId'] ?? '')));
     if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $personalId)) {
-        json_response(['message' => 'No es posible obtener la información requerida. Error: NSIPID'], 400, $config);
+        json_response(['message' => 'No es posible obtener la información requerida en estos momentos. Si el problema persiste, contacte a la Gerencia de Sistemas e informe el error: NSIPID'], 400, $config);
         return;
     }
 
