@@ -60,6 +60,18 @@ if (!function_exists('sgi_movil_dotenv_value')) {
     }
 }
 
+if (!function_exists('sgi_movil_env_int')) {
+    function sgi_movil_env_int(string $key, int $default): int
+    {
+        $value = getenv($key);
+        if ($value === false || trim((string) $value) === '') {
+            return $default;
+        }
+
+        return (int) $value;
+    }
+}
+
 $appVersionFromEnvFile = sgi_movil_dotenv_value('EXPO_PUBLIC_APP_VERSION', [
     getenv('SGI_MOVIL_ENV_FILE') ?: '',
     __DIR__ . '/.env',
@@ -102,6 +114,14 @@ return [
         'android_store_url' => getenv('SGI_MOVIL_ANDROID_STORE_URL') ?: 'https://play.google.com/store/apps/details?id=ar.com.raei.sgi',
         'ios_latest_version' => $publishedAppVersion,
         'ios_store_url' => getenv('SGI_MOVIL_IOS_STORE_URL') ?: '',
+    ],
+    'asistencia_calculo' => [
+        'max_duracion_jornada_horas' => sgi_movil_env_int('ASISTENCIA_CALCULO_MAX_DURACION_JORNADA_HORAS', 13),
+        'descanso_minimo_horas' => sgi_movil_env_int('ASISTENCIA_CALCULO_DESCANSO_MINIMO_HORAS', 8),
+        'fraccionamiento_minutos' => sgi_movil_env_int('ASISTENCIA_CALCULO_FRACCIONAMIENTO_MINUTOS', 60),
+        'deduplicacion_minutos' => sgi_movil_env_int('ASISTENCIA_CALCULO_DEDUPLICACION_MINUTOS', 2),
+        'jornada_vigilancia_horas' => sgi_movil_env_int('ASISTENCIA_CALCULO_JORNADA_VIGILANCIA', 12),
+        'maximo_horas_extras_dia' => sgi_movil_env_int('MAXIMO_HORAS_EXTRAS_DIA', 3),
     ],
     'push' => [
         'fcm' => [

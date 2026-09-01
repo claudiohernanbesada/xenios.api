@@ -46,7 +46,7 @@ try {
 try {
     match (true) {
         $method === 'GET' && $path === '/health' => json_response(['ok' => true, 'service' => 'sgi-movil'], 200, $config),
-        $method === 'GET' && $path === '/app-version' => handle_app_version($config),
+        $method === 'GET' && $path === '/app-version' => handle_app_version($pdo, $config),
         $method === 'POST' && $path === '/auth/login' => handle_login($pdo, $config),
         $method === 'POST' && $path === '/auth/recuperar-clave' => handle_recuperar_clave_solicitud($pdo, $config),
         $method === 'GET' && $path === '/auth/recuperar-clave/validar' => handle_recuperar_clave_validar($pdo, $config),
@@ -77,8 +77,10 @@ try {
 }
 
 // POST /auth/recuperar-clave — envía mail con enlace (respuesta genérica)
-function handle_app_version(array $config): void
+function handle_app_version(PDO $pdo, array $config): void
 {
+    require_auth($pdo, $config);
+
     $versionConfig = $config['app_version'] ?? [];
     $androidLatestVersion = (string) ($versionConfig['android_latest_version'] ?? '');
     $androidStoreUrl = (string) ($versionConfig['android_store_url'] ?? '');
@@ -530,6 +532,11 @@ function handle_asistencia(PDO $pdo, array $config): void
         json_response(['message' => 'Parámetros desde/hasta inválidos (YYYY-MM-DD)'], 400, $config);
         return;
     }
+    $personalId = strtolower(trim((string) ($_GET['personalId'] ?? '')));
+    if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $personalId)) {
+        json_response(['message' => 'Parámetro personalId inválido'], 400, $config);
+        return;
+    }
 
     $personal = fetch_personal_empleado_completo($pdo, (string) $auth['user']['Mail']);
     if ($personal === null) {
@@ -537,8 +544,12 @@ function handle_asistencia(PDO $pdo, array $config): void
             'desde' => $desde,
             'hasta' => $hasta,
             'dias' => [],
-            'resumen' => horas_trabajadas_build_resumen($pdo, ['Id' => '', 'Legajo' => 0], $desde, $hasta),
+            'resumen' => horas_trabajadas_build_resumen($pdo, ['Id' => '', 'Legajo' => 0], $desde, $hasta, $config),
         ], 200, $config);
+        return;
+    }
+    if (strtolower((string) $personal['Id']) !== $personalId) {
+        json_response(['message' => 'No tiene permisos para consultar ese empleado'], 403, $config);
         return;
     }
 
@@ -546,7 +557,7 @@ function handle_asistencia(PDO $pdo, array $config): void
         'desde' => $desde,
         'hasta' => $hasta,
         'dias' => asistencia_build_calendario($pdo, $personal, $desde, $hasta),
-        'resumen' => horas_trabajadas_build_resumen($pdo, $personal, $desde, $hasta),
+        'resumen' => horas_trabajadas_build_resumen($pdo, $personal, $desde, $hasta, $config),
     ], 200, $config);
 }
 

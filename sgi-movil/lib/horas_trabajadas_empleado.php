@@ -12,6 +12,7 @@ const HT_TURNO_ESPECIAL_SALIDA = '23:45:00';
 const HT_TURNO_LOGISTICA_ENTRADA = '14:00:00';
 const HT_TURNO_LOGISTICA_SALIDA = '23:00:00';
 const HT_TOLERANCIA_FICHADA_FALTANTE = 60.0;
+const HT_MAXIMO_HORAS_EXTRAS_DIA = 3;
 
 /**
  * Resumen de horas trabajadas de un empleado (HorasTrabajadasController.ProcesarEmpleadoHorasTrabajadas).
@@ -19,7 +20,7 @@ const HT_TOLERANCIA_FICHADA_FALTANTE = 60.0;
  * @param array<string, mixed> $personal Id, Legajo, Nombre, Apellido, Estado, FechaBaja, AreaNombre; opcional TipoContratacionNombre, HorasExtras
  * @return array<string, mixed> Campos formateados para JSON móvil (HorasTrabajadasDetalleViewModel)
  */
-function horas_trabajadas_build_resumen(PDO $pdo, array $personal, string $desde, string $hasta): array
+function horas_trabajadas_build_resumen(PDO $pdo, array $personal, string $desde, string $hasta, array $config = []): array
 {
     $desdeDt = DateTimeImmutable::createFromFormat('Y-m-d', $desde);
     $hastaDt = DateTimeImmutable::createFromFormat('Y-m-d', $hasta);
@@ -30,8 +31,22 @@ function horas_trabajadas_build_resumen(PDO $pdo, array $personal, string $desde
     $empleado = horas_trabajadas_enriquecer_personal($pdo, $personal);
     $periodo = horas_trabajadas_normalizar_periodo($desdeDt, $hastaDt);
     $datos = horas_trabajadas_cargar_datos($pdo, $empleado, $periodo);
+    $datos['config'] = ht_asistencia_calculo_config($config);
 
     return horas_trabajadas_procesar_empleado($periodo, $datos, $empleado);
+}
+
+function ht_asistencia_calculo_config(array $config): array
+{
+    $calculo = $config['asistencia_calculo'] ?? [];
+    return [
+        'max_duracion_jornada_horas' => (int) ($calculo['max_duracion_jornada_horas'] ?? 13),
+        'descanso_minimo_horas' => (int) ($calculo['descanso_minimo_horas'] ?? 8),
+        'fraccionamiento_minutos' => max(1, (int) ($calculo['fraccionamiento_minutos'] ?? 60)),
+        'deduplicacion_minutos' => max(0, (int) ($calculo['deduplicacion_minutos'] ?? 2)),
+        'jornada_vigilancia_horas' => (int) ($calculo['jornada_vigilancia_horas'] ?? 12),
+        'maximo_horas_extras_dia' => (int) ($calculo['maximo_horas_extras_dia'] ?? 3),
+    ];
 }
 
 /** @param array<string, mixed> $personal */
@@ -261,20 +276,6 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
     $minutosAuth = horas_trabajadas_calcular_minutos_auth($empleado, $datos);
 
     $diasTrabajo = [];
-    if ($esQuincenal) {
-        ht_agregar_feriados_habiles_periodo($diasTrabajo, $datos['feriados'], $periodo['desde'], $periodo['hasta']);
-    }
-    ht_agregar_feriados_fin_de_semana_quincenal(
-        $diasTrabajo,
-        $datos['feriados'],
-        $periodo['desde'],
-        $periodo['hasta'],
-        $esQuincenal,
-        $personalId,
-        $datos['licenciasCgs'],
-        $datos['vacaciones'],
-        $datos['ausenciasResta']
-    );
     ht_quitar_feriados_habiles_cubiertos_por_licencia(
         $diasTrabajo,
         $datos['feriados'],
@@ -308,6 +309,20 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
     );
 
     $fichadasEmp = $datos['fichadas'];
+    $minutosFeriadosHabiles = $esQuincenal
+        ? ht_minutos_feriados_habiles_quincenal(
+            $datos['feriados'],
+            $periodo['desde'],
+            $periodo['hasta'],
+            $personalId,
+            $diasTrabajo,
+            $datos['licenciasCgs'],
+            $datos['vacaciones'],
+            $datos['ausenciasResta'],
+            $areaNombre,
+            (int) ($datos['config']['jornada_vigilancia_horas'] ?? 12)
+        )
+        : 0;
 
     if ($fichadasEmp === []) {
         $minutosTrab = ht_sumar_minutos_nominales(
@@ -319,7 +334,9 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
             $personalId,
             $datos['licenciasCgs'],
             $datos['vacaciones'],
-            $datos['ausenciasResta']
+            $datos['ausenciasResta'],
+            $areaNombre,
+            (int) ($datos['config']['jornada_vigilancia_horas'] ?? 12)
         );
         return horas_trabajadas_armar_respuesta(
             $empleado,
@@ -327,10 +344,22 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
             count($diasTrabajo),
             (int) $minutosAuth,
             0,
-            0,
+            $esQuincenal
+                ? ht_minutos_extras50_feriados_fin_de_semana_quincenal(
+                    $datos['feriados'],
+                    $periodo['desde'],
+                    $periodo['hasta'],
+                    $personalId,
+                    [],
+                    $datos['licenciasCgs'],
+                    $datos['vacaciones'],
+                    $datos['ausenciasResta']
+                )
+                : 0,
             0,
             $licenciaCgs['dias'],
             $licenciaCgs['minutos'],
+            $minutosFeriadosHabiles,
             $diasVacaciones,
             $licenciaSgs['dias'],
             false
@@ -349,7 +378,7 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
         $datos['authSalidaLookup'],
         $datos['licenciasLookup']
     )) {
-        return horas_trabajadas_armar_respuesta($empleado, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, true);
+        return horas_trabajadas_armar_respuesta($empleado, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, true);
     }
 
     [$e50, $e100, $comp] = horas_trabajadas_calcular_extras(
@@ -362,6 +391,20 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
         $horasExtrasFlag,
         $areaNombre
     );
+    $minutosFeriadosHabiles = $esQuincenal
+        ? ht_minutos_feriados_habiles_quincenal(
+            $datos['feriados'],
+            $periodo['desde'],
+            $periodo['hasta'],
+            $personalId,
+            $diasTrabajo,
+            $datos['licenciasCgs'],
+            $datos['vacaciones'],
+            $datos['ausenciasResta'],
+            $areaNombre,
+            (int) ($datos['config']['jornada_vigilancia_horas'] ?? 12)
+        )
+        : 0;
 
     $minutosTrab = ht_sumar_minutos_nominales(
         $diasTrabajo,
@@ -372,7 +415,9 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
         $personalId,
         $datos['licenciasCgs'],
         $datos['vacaciones'],
-        $datos['ausenciasResta']
+        $datos['ausenciasResta'],
+        $areaNombre,
+        (int) ($datos['config']['jornada_vigilancia_horas'] ?? 12)
     );
 
     return horas_trabajadas_armar_respuesta(
@@ -385,6 +430,7 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
         (int) $e100,
         $licenciaCgs['dias'],
         $licenciaCgs['minutos'],
+        $minutosFeriadosHabiles,
         $diasVacaciones,
         $licenciaSgs['dias'],
         false
@@ -405,17 +451,19 @@ function horas_trabajadas_armar_respuesta(
     int $minutosExtra100,
     int $diasLicencia,
     int $minutosLicenciaConGoce,
+    int $minutosFeriados,
     int $diasVacacionesConsumidas,
     int $diasAusenciaResta,
     bool $fichadaIncompleta
 ): array {
     $minutosAuthSalida = ht_redondear_auth_minutos($minutosAuthSalida);
     $minutosAuthCompensada = ht_redondear_auth_minutos($minutosAuthCompensada);
-    $minutosAuthPendiente = max(0, $minutosAuthSalida - $minutosAuthCompensada);
-    $minutosTotalAPagar = $minutosHorasTrab + $minutosLicenciaConGoce - $minutosAuthPendiente;
+    $minutosTotalAPagar = $minutosHorasTrab - $minutosAuthSalida + $minutosAuthCompensada + $minutosFeriados + $minutosLicenciaConGoce;
 
     $horasTrab = intdiv($minutosHorasTrab, 60);
     $restoTrab = $minutosHorasTrab % 60;
+    $horasFeriados = intdiv($minutosFeriados, 60);
+    $restoFeriados = $minutosFeriados % 60;
     $horasTotal = intdiv($minutosTotalAPagar, 60);
     $restoTotal = $minutosTotalAPagar % 60;
 
@@ -429,6 +477,7 @@ function horas_trabajadas_armar_respuesta(
         'diasTrabajados' => $diasTrabajados,
         'authSalidaFormateada' => intdiv($minutosAuthSalida, 60) . ' hs.',
         'authSalidaCompensadaFormateada' => intdiv($minutosAuthCompensada, 60) . ' hs.',
+        'horasFeriadosFormateadas' => sprintf('%02d:%02d', $horasFeriados, $restoFeriados),
         'diasLicencia' => $diasLicencia,
         'diasAusenciaResta' => $diasAusenciaResta,
         'diasVacacionesConsumidas' => $diasVacacionesConsumidas,
@@ -439,6 +488,7 @@ function horas_trabajadas_armar_respuesta(
         'minutosTrabajados' => $minutosHorasTrab,
         'minutosAuthSalida' => $minutosAuthSalida,
         'minutosAuthSalidaCompensada' => $minutosAuthCompensada,
+        'minutosFeriados' => $minutosFeriados,
         'minutosExtra50' => $minutosExtra50,
         'minutosExtra100' => $minutosExtra100,
         'minutosTotalAPagar' => $minutosTotalAPagar,
@@ -449,7 +499,7 @@ function horas_trabajadas_armar_respuesta(
 /** @param array<string, mixed> $empleado */
 function horas_trabajadas_resumen_vacio(array $empleado): array
 {
-    return horas_trabajadas_armar_respuesta($empleado, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false);
+    return horas_trabajadas_armar_respuesta($empleado, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false);
 }
 
 /** @param array<string, mixed> $empleado */
@@ -519,9 +569,7 @@ function horas_trabajadas_calcular_extras(
     $e50 = 0.0;
     $e100 = 0.0;
     $compensable = 0.0;
-    if ($horasExtrasFlag) {
-        ht_acumular_extras_manuales($personalId, $datos['extrasManuales'], $e50, $e100);
-    }
+    ht_acumular_extras_manuales($personalId, $datos['extrasManuales'], $e50, $e100);
 
     $porDia = [];
     foreach ($fichadasEmp as $f) {
@@ -551,12 +599,26 @@ function horas_trabajadas_calcular_extras(
             $e50,
             $e100,
             $compensable,
-            $inicioAuthPosterior !== null
+            $inicioAuthPosterior !== null,
+            $horasExtrasFlag
         );
     }
 
     $e50 = (float) ht_redondear_hora_extra_completa($e50);
     $e100 = (float) ht_redondear_hora_extra_completa($e100);
+    if (ht_es_quincenal((string) ($empleado['TipoContratacionNombre'] ?? ''))) {
+        $fechasConFichada = array_fill_keys(array_keys($porDia), true);
+        $e50 += ht_minutos_extras50_feriados_fin_de_semana_quincenal(
+            $datos['feriados'],
+            $periodo['desde'],
+            $periodo['hasta'],
+            $personalId,
+            $fechasConFichada,
+            $datos['licenciasCgs'],
+            $datos['vacaciones'],
+            $datos['ausenciasResta']
+        );
+    }
     $compensable = (float) ht_redondear_hora_extra_completa($compensable);
 
     // Compensación de auth. salida: siempre desde horas acumuladas en fichadas (independiente de HorasExtras).
@@ -570,11 +632,6 @@ function horas_trabajadas_calcular_extras(
         if ($pendienteDescuento > 0) {
             $e100 -= min($e100, $pendienteDescuento);
         }
-    }
-
-    if (!$horasExtrasFlag) {
-        $e50 = 0.0;
-        $e100 = 0.0;
     }
 
     return [$e50, $e100, $comp];
@@ -593,16 +650,17 @@ function ht_procesar_grupo_dia_fichadas(
     float &$e50,
     float &$e100,
     float &$compensable,
-    bool $tieneAuthPosterior
+    bool $tieneAuthPosterior,
+    bool $calcularHorasExtras
 ): void {
     $personalId = (string) ($empleado['Id'] ?? '');
     $areaNombre = (string) ($empleado['AreaNombre'] ?? $empleado['Area'] ?? '');
     $horarioIngreso = is_string($empleado['HorarioIngreso'] ?? null) ? $empleado['HorarioIngreso'] : null;
     $horarioSalida = is_string($empleado['HorarioSalida'] ?? null) ? $empleado['HorarioSalida'] : null;
-
-    if (isset($datos['feriados'][$fechaKey])) {
-        return;
-    }
+    $bloqueMinutos = (int) ($datos['config']['fraccionamiento_minutos'] ?? 60);
+    $diaExtra50ConTope = 0.0;
+    $diaExtra100ConTope = 0.0;
+    $diaCompensableConTope = 0.0;
 
     $dia = $entrada;
     $hoyStr = $periodo['hoy']->format('Y-m-d');
@@ -614,16 +672,16 @@ function ht_procesar_grupo_dia_fichadas(
 
     $dow = (int) $dia->format('w');
     if ($dow === 0 || $dow === 6) {
-        ht_acumular_tiempo_compensable($entrada, $salida, $compensable);
-        ht_acumular_extras_segun_franja($entrada, $salida, $e50, $e100);
+        ht_acumular_tiempo_compensable($entrada, $salida, $compensable, $bloqueMinutos);
+        ht_acumular_extras_segun_franja($entrada, $salida, $e50, $e100, $bloqueMinutos);
         return;
     }
 
     if ($dow === 1 && $entrada->format('H:i:s') < HT_FIN_EXTRA_LUNES) {
         $corte = $dia->setTime(4, 0);
         $finTramo = $salida < $corte ? $salida : $corte;
-        ht_acumular_tiempo_compensable($entrada, $finTramo, $compensable);
-        ht_acumular_extras_segun_franja($entrada, $finTramo, $e50, $e100);
+        ht_acumular_tiempo_compensable($entrada, $finTramo, $compensable, $bloqueMinutos);
+        ht_acumular_extras_segun_franja($entrada, $finTramo, $e50, $e100, $bloqueMinutos);
         if ($salida <= $corte) {
             return;
         }
@@ -675,8 +733,8 @@ function ht_procesar_grupo_dia_fichadas(
     if ($dow === 5 && $minutosNormalesHoy > 480) {
         $minutosExtra = $minutosNormalesHoy - 480;
         $minutosNormalesHoy = 480.0;
-        if ($minutosExtra >= 60) {
-            $e50 += (int) ($minutosExtra / 60) * 60;
+        if ($calcularHorasExtras && $minutosExtra >= 60) {
+            $diaExtra50ConTope += (int) ($minutosExtra / 60) * 60;
         }
     }
 
@@ -694,13 +752,20 @@ function ht_procesar_grupo_dia_fichadas(
 
     $limite = $dow === 6 ? HT_LIMITE_EXTRA_SABADO : HT_LIMITE_EXTRA_SEMANA;
     if ($entrada < $iniAsig) {
-        ht_acumular_extra_por_horario($entrada, $iniAsig, $limite, $e50, $e100);
-        ht_acumular_tiempo_compensable($entrada, $iniAsig, $compensable);
+        ht_acumular_extra_por_horario($entrada, $iniAsig, $limite, $diaExtra50ConTope, $diaExtra100ConTope, $bloqueMinutos);
+        ht_acumular_tiempo_compensable($entrada, $iniAsig, $diaCompensableConTope, $bloqueMinutos);
     }
     if ($salida > $finAsig) {
-        ht_acumular_extra_por_horario($finAsig, $salida, $limite, $e50, $e100);
-        ht_acumular_tiempo_compensable($finAsig, $salida, $compensable);
+        ht_acumular_extra_por_horario($finAsig, $salida, $limite, $diaExtra50ConTope, $diaExtra100ConTope, $bloqueMinutos);
+        ht_acumular_tiempo_compensable($finAsig, $salida, $diaCompensableConTope, $bloqueMinutos);
     }
+
+    ht_aplicar_tope_horas_extras_por_dia($datos, $diaExtra50ConTope, $diaExtra100ConTope, $diaCompensableConTope);
+    if ($calcularHorasExtras) {
+        $e50 += $diaExtra50ConTope;
+        $e100 += $diaExtra100ConTope;
+    }
+    $compensable += $diaCompensableConTope;
 }
 
 function ht_auths_dia(array $datos, string $personalId, string $fechaKey): array
@@ -946,23 +1011,15 @@ function ht_sumar_minutos_nominales(
     string $personalId,
     array $licenciasCgs,
     array $vacaciones,
-    array $ausenciasResta
+    array $ausenciasResta,
+    ?string $areaNombre = null,
+    int $jornadaVigilanciaHoras = 12
 ): int {
     $m = 0;
     foreach (array_keys($diasTrabajo) as $fechaStr) {
         $d = new DateTimeImmutable($fechaStr);
-        $m += ht_minutos_horas_trabajadas_dia_laboral($d, $feriados);
+        $m += ht_minutos_horas_trabajadas_dia_laboral($d, $feriados, $areaNombre, $jornadaVigilanciaHoras);
     }
-    $m += ht_minutos_feriados_fin_de_semana_mq(
-        $feriados,
-        $desde,
-        $hasta,
-        $esMensualQuincenal,
-        $personalId,
-        $licenciasCgs,
-        $vacaciones,
-        $ausenciasResta
-    );
     return $m;
 }
 
@@ -978,11 +1035,19 @@ function ht_contar_dias_habiles(DateTimeImmutable $desde, DateTimeImmutable $has
     return $dias;
 }
 
-function ht_minutos_horas_trabajadas_dia_laboral(DateTimeImmutable $fecha, array $feriados): int
+function ht_minutos_horas_trabajadas_dia_laboral(
+    DateTimeImmutable $fecha,
+    array $feriados,
+    ?string $areaNombre = null,
+    int $jornadaVigilanciaHoras = 12
+): int
 {
     $dow = (int) $fecha->format('w');
     if ($dow === 0 || $dow === 6) {
         return 0;
+    }
+    if (ht_es_area_vigilancia((string) $areaNombre)) {
+        return $jornadaVigilanciaHoras * 60;
     }
     $fechaStr = $fecha->format('Y-m-d');
     if (isset($feriados[$fechaStr])) {
@@ -1076,19 +1141,49 @@ function ht_dia_excluido_por_licencia_formal(
     return false;
 }
 
-function ht_minutos_feriados_fin_de_semana_mq(
+function ht_minutos_feriados_habiles_quincenal(
     array $feriados,
     DateTimeImmutable $desde,
     DateTimeImmutable $hasta,
-    bool $aplicar,
     string $personalId,
+    array $fechasConJornadaNormal,
+    array $licenciasCgs,
+    array $vacaciones,
+    array $ausenciasResta,
+    string $areaNombre,
+    int $jornadaVigilanciaHoras
+): int {
+    $m = 0;
+    foreach (array_keys($feriados) as $fechaStr) {
+        $f = new DateTimeImmutable($fechaStr);
+        if ($f < $desde || $f > $hasta) {
+            continue;
+        }
+        $dow = (int) $f->format('w');
+        if ($dow === 0 || $dow === 6) {
+            continue;
+        }
+        if (isset($fechasConJornadaNormal[$fechaStr])) {
+            continue;
+        }
+        if (ht_dia_excluido_por_licencia_formal($personalId, $fechaStr, $licenciasCgs, $vacaciones, $ausenciasResta)) {
+            continue;
+        }
+        $m += ht_minutos_horas_trabajadas_dia_laboral($f, $feriados, $areaNombre, $jornadaVigilanciaHoras);
+    }
+    return $m;
+}
+
+function ht_minutos_extras50_feriados_fin_de_semana_quincenal(
+    array $feriados,
+    DateTimeImmutable $desde,
+    DateTimeImmutable $hasta,
+    string $personalId,
+    array $fechasConFichada,
     array $licenciasCgs,
     array $vacaciones,
     array $ausenciasResta
 ): int {
-    if (!$aplicar) {
-        return 0;
-    }
     $m = 0;
     foreach (array_keys($feriados) as $fechaStr) {
         $f = new DateTimeImmutable($fechaStr);
@@ -1099,12 +1194,32 @@ function ht_minutos_feriados_fin_de_semana_mq(
         if ($dow !== 0 && $dow !== 6) {
             continue;
         }
+        if (isset($fechasConFichada[$fechaStr])) {
+            continue;
+        }
         if (ht_dia_excluido_por_licencia_formal($personalId, $fechaStr, $licenciasCgs, $vacaciones, $ausenciasResta)) {
             continue;
         }
         $m += 9 * 60;
     }
     return $m;
+}
+
+function ht_aplicar_tope_horas_extras_por_dia(array $datos, float &$extra50, float &$extra100, float &$compensable): void
+{
+    $maximoHoras = (int) ($datos['config']['maximo_horas_extras_dia'] ?? HT_MAXIMO_HORAS_EXTRAS_DIA);
+    $maximo = $maximoHoras * 60;
+    $total = $extra50 + $extra100;
+    if ($total <= $maximo) {
+        $compensable = min($compensable, $maximo);
+        return;
+    }
+
+    $extra100Topeada = min($extra100, $maximo);
+    $extra50Topeada = min($extra50, $maximo - $extra100Topeada);
+    $extra50 = $extra50Topeada;
+    $extra100 = $extra100Topeada;
+    $compensable = min($compensable, $maximo);
 }
 
 function ht_acumular_extras_manuales(string $personalId, array $extrasPorPersonal, float &$e50, float &$e100): void
@@ -1124,7 +1239,8 @@ function ht_acumular_extras_segun_franja(
     DateTimeImmutable $entrada,
     DateTimeImmutable $salida,
     float &$e50,
-    float &$e100
+    float &$e100,
+    int $bloqueMinutos = 60
 ): void {
     if ($salida <= $entrada) {
         return;
@@ -1132,14 +1248,14 @@ function ht_acumular_extras_segun_franja(
 
     $dow = (int) $entrada->format('w');
     if ($dow === 0) {
-        $e100 += ht_redondear_hora_extra_completa(($salida->getTimestamp() - $entrada->getTimestamp()) / 60.0);
+        $e100 += ht_redondear_bloque(($salida->getTimestamp() - $entrada->getTimestamp()) / 60.0, $bloqueMinutos);
         return;
     }
 
     if ($dow === 1 && $entrada->format('H:i:s') < HT_FIN_EXTRA_LUNES) {
         $corte = $entrada->setTime(4, 0);
         $finTramo = $salida < $corte ? $salida : $corte;
-        $e100 += ht_redondear_hora_extra_completa(($finTramo->getTimestamp() - $entrada->getTimestamp()) / 60.0);
+        $e100 += ht_redondear_bloque(($finTramo->getTimestamp() - $entrada->getTimestamp()) / 60.0, $bloqueMinutos);
         if ($salida <= $corte) {
             return;
         }
@@ -1148,7 +1264,7 @@ function ht_acumular_extras_segun_franja(
     }
 
     $limite = $dow === 6 ? HT_LIMITE_EXTRA_SABADO : HT_LIMITE_EXTRA_SEMANA;
-    ht_acumular_extra_por_horario($entrada, $salida, $limite, $e50, $e100);
+    ht_acumular_extra_por_horario($entrada, $salida, $limite, $e50, $e100, $bloqueMinutos);
 }
 
 function ht_acumular_extra_por_horario(
@@ -1156,7 +1272,8 @@ function ht_acumular_extra_por_horario(
     DateTimeImmutable $finExtra,
     string $limiteHorario,
     float &$extra50,
-    float &$extra100
+    float &$extra100,
+    int $bloqueMinutos = 60
 ): void {
     if ($finExtra <= $inicioExtra) {
         return;
@@ -1166,24 +1283,25 @@ function ht_acumular_extra_por_horario(
     $corte = $inicioExtra->setTime((int) $parts[0], (int) ($parts[1] ?? 0), (int) ($parts[2] ?? 0));
 
     if ($finExtra <= $corte) {
-        $extra50 += ht_redondear_hora_extra_completa(ht_minutos_sin_segundos($inicioExtra, $finExtra));
+        $extra50 += ht_redondear_bloque(ht_minutos_sin_segundos($inicioExtra, $finExtra), $bloqueMinutos);
         return;
     }
     if ($inicioExtra >= $corte) {
-        $extra100 += ht_redondear_hora_extra_completa(ht_minutos_sin_segundos($inicioExtra, $finExtra));
+        $extra100 += ht_redondear_bloque(ht_minutos_sin_segundos($inicioExtra, $finExtra), $bloqueMinutos);
         return;
     }
 
-    $extra50 += ht_redondear_hora_extra_completa(ht_minutos_sin_segundos($inicioExtra, $corte));
-    $extra100 += ht_redondear_hora_extra_completa(ht_minutos_sin_segundos($corte, $finExtra));
+    $extra50 += ht_redondear_bloque(ht_minutos_sin_segundos($inicioExtra, $corte), $bloqueMinutos);
+    $extra100 += ht_redondear_bloque(ht_minutos_sin_segundos($corte, $finExtra), $bloqueMinutos);
 }
 
 function ht_acumular_tiempo_compensable(
     DateTimeImmutable $inicio,
     DateTimeImmutable $fin,
-    float &$compensable
+    float &$compensable,
+    int $bloqueMinutos = 60
 ): void {
-    $compensable += ht_redondear_hora_extra_completa(ht_minutos_sin_segundos($inicio, $fin));
+    $compensable += ht_redondear_bloque(ht_minutos_sin_segundos($inicio, $fin), $bloqueMinutos);
 }
 
 function ht_minutos_sin_segundos(DateTimeImmutable $inicio, DateTimeImmutable $fin): float
@@ -1198,10 +1316,16 @@ function ht_minutos_sin_segundos(DateTimeImmutable $inicio, DateTimeImmutable $f
 
 function ht_redondear_hora_extra_completa(float $minutos): int
 {
+    return ht_redondear_bloque($minutos, 60);
+}
+
+function ht_redondear_bloque(float $minutos, int $bloqueMinutos): int
+{
     if ($minutos <= 0) {
         return 0;
     }
-    return (int) ($minutos / 60) * 60;
+    $bloque = max(1, $bloqueMinutos);
+    return (int) ($minutos / $bloque) * $bloque;
 }
 
 function ht_redondear_auth_minutos(int $minutos): int
@@ -1373,6 +1497,15 @@ function ht_es_area_logistica(string $areaNombre): bool
     }
     $normalizado = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $areaNombre) ?: $areaNombre;
     return strtoupper(trim($normalizado)) === 'LOGISTICA';
+}
+
+function ht_es_area_vigilancia(string $areaNombre): bool
+{
+    if ($areaNombre === '') {
+        return false;
+    }
+    $normalizado = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $areaNombre) ?: $areaNombre;
+    return strtoupper(trim($normalizado)) === 'VIGILANCIA';
 }
 
 function ht_es_mensual_o_quincenal(string $nombre): bool
