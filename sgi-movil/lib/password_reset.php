@@ -7,9 +7,10 @@ function password_reset_config(array $config): array
 {
     $defaults = [
         'public_base_url' => 'https://restartpassword.sgi.raei.com.ar',
-        'ttl_seconds' => 3600,
+        'ttl_seconds' => 1800,
         'mail_from' => 'noreply@raei.com.ar',
         'mail_from_name' => 'SGI - Metalurgica RAEI',
+        'app_login_url' => 'sgi://login',
     ];
 
     return array_merge($defaults, $config['password_reset'] ?? []);
@@ -49,6 +50,17 @@ function password_reset_create_token(PDO $pdo, string $usuarioId, int $ttlSecond
     return $plain;
 }
 
+function password_reset_clear_token(PDO $pdo, string $usuarioId): void
+{
+    $stmt = $pdo->prepare(
+        'UPDATE Usuarios
+         SET PasswordResetToken = NULL,
+             PasswordResetTokenExpiration = NULL
+         WHERE Id = :uid'
+    );
+    $stmt->execute(['uid' => $usuarioId]);
+}
+
 function password_reset_build_link(array $prConfig, string $plainToken): string
 {
     $base = rtrim((string) $prConfig['public_base_url'], '/');
@@ -64,7 +76,7 @@ function password_reset_send_mail(array $prConfig, string $toMail, string $nombr
     $body =
         "Hola {$nombre},\n\n"
         . "Recibimos una solicitud para restablecer la contrasena de tu cuenta en la app SGI.\n\n"
-        . "Abri el siguiente enlace (valido por 1 hora):\n{$link}\n\n"
+        . "Abri el siguiente enlace (valido por 30 minutos):\n{$link}\n\n"
         . "Si no solicitaste este cambio, ignora este correo.\n\n"
         . "Metalurgica RAEI S.A.";
 
@@ -92,6 +104,7 @@ function password_reset_request(PDO $pdo, array $config, string $correo): array
         $nombre = trim((string) $user['Nombre']);
         $sent = password_reset_send_mail($pr, (string) $user['Mail'], $nombre !== '' ? $nombre : 'Usuario', $link);
         if (!$sent) {
+            password_reset_clear_token($pdo, (string) $user['Id']);
             error_log('[password_reset] No se pudo enviar el correo de recuperacion a ' . (string) $user['Mail']);
             return [
                 'ok' => false,
@@ -129,7 +142,10 @@ function password_reset_validate(PDO $pdo, string $plainToken): array
 
     $expires = new DateTimeImmutable($expiresRaw, new DateTimeZone('UTC'));
     if ($expires < new DateTimeImmutable('now', new DateTimeZone('UTC'))) {
-        return ['ok' => false, 'message' => 'El enlace expiro. Solicita uno nuevo desde la app'];
+        return [
+            'ok' => false,
+            'message' => 'El tiempo para resetear la contraseña superó el tiempo permitido. Deberá volver a gestionar la recuperación de la contraseña.',
+        ];
     }
 
     return ['ok' => true, 'usuarioId' => (string) $row['Id']];
@@ -159,7 +175,8 @@ function password_reset_complete(PDO $pdo, array $config, string $plainToken, st
              SET Passwd = :passwd,
                  PasswordResetToken = NULL,
                  PasswordResetTokenExpiration = NULL,
-                 dateUpdate = NOW()
+                 dateUpdate = NOW(),
+                 LastChPasswd = NOW()
              WHERE Id = :id
                AND Estado = 1
                AND PasswordResetToken = :token'
@@ -181,5 +198,5 @@ function password_reset_complete(PDO $pdo, array $config, string $plainToken, st
         return ['ok' => false, 'message' => 'No se pudo actualizar la contrasena'];
     }
 
-    return ['ok' => true, 'message' => 'Contrasena actualizada correctamente'];
+    return ['ok' => true, 'message' => 'El cambio de contraseña se realizó con éxito'];
 }

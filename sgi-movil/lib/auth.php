@@ -13,8 +13,8 @@ function sha256_password(string $plain): string
 // Valida reglas de contraseña fuerte; devuelve mensaje de error o null si está ok
 function validate_password_policy(string $password): ?string
 {
-    if (strlen($password) < 8) {
-        return 'La contraseña debe tener al menos 8 caracteres';
+    if (strlen($password) < 10) {
+        return 'La contraseña debe tener al menos 10 caracteres';
     }
     if (!preg_match('/[A-Z]/', $password)) {
         return 'Debe incluir al menos una mayúscula';

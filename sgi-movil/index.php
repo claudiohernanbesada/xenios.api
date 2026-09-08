@@ -48,6 +48,7 @@ try {
         $method === 'GET' && $path === '/health' => json_response(['ok' => true, 'service' => 'sgi-movil'], 200, $config),
         $method === 'GET' && $path === '/app-version' => handle_app_version($pdo, $config),
         $method === 'POST' && $path === '/auth/login' => handle_login($pdo, $config),
+        $method === 'POST' && $path === '/auth/logout' => handle_logout($pdo, $config),
         $method === 'POST' && $path === '/auth/recuperar-clave' => handle_recuperar_clave_solicitud($pdo, $config),
         $method === 'GET' && $path === '/auth/recuperar-clave/validar' => handle_recuperar_clave_validar($pdo, $config),
         $method === 'POST' && $path === '/auth/recuperar-clave/completar' => handle_recuperar_clave_completar($pdo, $config),
@@ -239,6 +240,15 @@ function handle_login(PDO $pdo, array $config): void
         return;
     }
 
+    $stmtLogin = $pdo->prepare(
+        'UPDATE Usuarios SET LastLogin = NOW(), Plataforma = :plataforma WHERE Id = :id'
+    );
+    $stmtLogin->execute([
+        'id' => (string) $user['Id'],
+        'plataforma' => 'mobil',
+    ]);
+    registrar_log_sgi($pdo, (string) $user['Id'], 'Login', 'Inicio de sesión exitoso - ' . $correo, 'mobil');
+
     $roles = fetch_user_roles($pdo, (string) $user['Id']);
     $personal = fetch_personal_by_mail($pdo, $correo);
 
@@ -253,6 +263,15 @@ function handle_login(PDO $pdo, array $config): void
         'token' => $token,
         'usuario' => build_usuario_response($user, $roles, $personal, $config),
     ], 200, $config);
+}
+
+// POST /auth/logout — registra cierre de sesión móvil
+function handle_logout(PDO $pdo, array $config): void
+{
+    $auth = require_auth($pdo, $config);
+    registrar_log_sgi($pdo, (string) $auth['user']['Id'], 'Logout', 'Cierre de sesión exitoso', 'mobil');
+
+    json_response(['ok' => true], 200, $config);
 }
 
 // GET /auth/me — perfil del usuario logueado según el token
@@ -308,7 +327,7 @@ function handle_cambiar_clave(PDO $pdo, array $config): void
     }
 
     $stmt = $pdo->prepare(
-        'UPDATE Usuarios SET Passwd = :passwd, dateUpdate = NOW() WHERE Id = :id'
+        'UPDATE Usuarios SET Passwd = :passwd, dateUpdate = NOW(), LastChPasswd = NOW() WHERE Id = :id'
     );
     $stmt->execute([
         'passwd' => sha256_password($nueva),
@@ -316,6 +335,34 @@ function handle_cambiar_clave(PDO $pdo, array $config): void
     ]);
 
     json_response(['ok' => true], 200, $config);
+}
+
+function registrar_log_sgi(PDO $pdo, string $usuarioId, string $accion, string $detalle, string $plataforma): void
+{
+    $stmt = $pdo->prepare(
+        'INSERT INTO Logs (UsuarioId, IP, Accion, Detalle, Plataforma, DateAction)
+         VALUES (:usuarioId, :ip, :accion, :detalle, :plataforma, NOW())'
+    );
+    $stmt->execute([
+        'usuarioId' => $usuarioId,
+        'ip' => cliente_ip_sgi(),
+        'accion' => $accion,
+        'detalle' => $detalle,
+        'plataforma' => $plataforma,
+    ]);
+}
+
+function cliente_ip_sgi(): string
+{
+    $forwarded = trim((string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''));
+    if ($forwarded !== '') {
+        $parts = array_map('trim', explode(',', $forwarded));
+        if (($parts[0] ?? '') !== '') {
+            return $parts[0];
+        }
+    }
+
+    return (string) ($_SERVER['REMOTE_ADDR'] ?? '');
 }
 
 // POST /auth/avatar — intermediario: guarda en disco según avatar_usuario en rutas_archivos.php

@@ -15,6 +15,7 @@ $feedback = null;
 $feedbackOk = false;
 $formVisible = true;
 $subtitle = 'Ingresá tu nueva contraseña para la app SGI.';
+$appLoginUrl = (string) (($config['password_reset'] ?? [])['app_login_url'] ?? 'sgi://login');
 
 try {
     $pdo = db_connect($config);
@@ -31,7 +32,7 @@ try {
         if ($feedbackOk) {
             $formVisible = false;
             $subtitle = 'Contraseña actualizada';
-            $feedback = 'El cambio fue exitoso. Volvé a la aplicación SGI en tu celular e iniciá sesión con la nueva contraseña. Recibirás una notificación en el dispositivo donde tengas la app instalada.';
+            $feedback = 'El cambio de contraseña se realizó con éxito. Te redireccionaremos al inicio de sesión de la app móvil.';
         }
     } else {
         $validation = password_reset_validate($pdo, $token);
@@ -123,6 +124,14 @@ try {
     .msg.error { background: #fce8e6; color: #c5221f; }
     .msg.ok { background: #e6f4ea; color: #137333; }
     .policy { font-size: 0.78rem; color: #5f6368; margin-top: 12px; line-height: 1.35; }
+    a.primary-link {
+      display: block;
+      margin-top: 14px;
+      text-align: center;
+      color: #1a73e8;
+      font-weight: 600;
+      text-decoration: none;
+    }
   </style>
 </head>
 <body>
@@ -138,19 +147,19 @@ try {
         <input type="hidden" name="token" value="<?= htmlspecialchars($token, ENT_QUOTES, 'UTF-8') ?>" />
         <div class="field">
           <label for="clave">Nueva contraseña</label>
-          <input id="clave" name="clave" type="password" autocomplete="new-password" required minlength="8" />
+          <input id="clave" name="clave" type="password" autocomplete="new-password" required minlength="10" />
           <button type="button" class="toggle-eye" data-target="clave" aria-label="Mostrar contraseña">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
           </button>
         </div>
         <div class="field">
           <label for="clave2">Repetir contraseña</label>
-          <input id="clave2" name="clave2" type="password" autocomplete="new-password" required minlength="8" />
+          <input id="clave2" name="clave2" type="password" autocomplete="new-password" required minlength="10" />
           <button type="button" class="toggle-eye" data-target="clave2" aria-label="Mostrar contraseña">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
           </button>
         </div>
-        <p class="policy">Mínimo 8 caracteres, una mayúscula, una minúscula, dos números y un carácter especial.</p>
+        <p class="policy">Mínimo 10 caracteres, una mayúscula, una minúscula, dos números y un carácter especial.</p>
         <button type="submit" class="primary" id="btn-submit">Guardar contraseña</button>
       </form>
     <?php endif; ?>
@@ -159,10 +168,21 @@ try {
       <div class="msg <?= $feedbackOk ? 'ok' : 'error' ?>" role="alert">
         <?= htmlspecialchars($feedback, ENT_QUOTES, 'UTF-8') ?>
       </div>
+      <?php if ($feedbackOk): ?>
+        <a class="primary-link" href="<?= htmlspecialchars($appLoginUrl, ENT_QUOTES, 'UTF-8') ?>">Volver al inicio de sesión</a>
+      <?php endif; ?>
     <?php endif; ?>
   </div>
 
   <script>
+    const appLoginUrl = <?= json_encode($appLoginUrl, JSON_UNESCAPED_SLASHES) ?>;
+    const passwordUpdated = <?= $feedbackOk ? 'true' : 'false' ?>;
+    if (passwordUpdated && appLoginUrl) {
+      window.setTimeout(() => {
+        window.location.href = appLoginUrl;
+      }, 2500);
+    }
+
     document.querySelectorAll('.toggle-eye').forEach((btnEye) => {
       btnEye.addEventListener('click', () => {
         const id = btnEye.getAttribute('data-target');
