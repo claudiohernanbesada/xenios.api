@@ -8,13 +8,13 @@ function password_reset_config(array $config): array
     $defaults = [
         'public_base_url' => 'https://restartpassword.sgi.raei.com.ar',
         'ttl_seconds' => 1800,
-        'mail_from' => 'norepply@raei.com.ar',
+        'mail_from' => 'noreply@raei.com.ar',
         'mail_from_name' => 'No Reply - Metalurgica RAEI',
         'app_login_url' => 'sgi://login',
         'smtp' => [
             'host' => 'smtp.office365.com',
             'port' => 587,
-            'username' => 'norepply@raei.com.ar',
+            'username' => 'noreply@raei.com.ar',
             'password' => '',
             'ssl' => true,
             'encryption' => 'tls',
@@ -268,7 +268,7 @@ function password_reset_request(PDO $pdo, array $config, string $correo): array
             error_log('[password_reset] No se pudo enviar el correo de recuperacion a ' . (string) $user['Mail']);
             return [
                 'ok' => false,
-                'message' => 'No se pudo enviar el correo de recuperacion. Intenta nuevamente en unos minutos o avisa a Sistemas.',
+                'message' => 'En estos momentos no es posible enviar la solicitud de recuperación. Intente en unos minutos o comuníquese con la Gerencia de IT.',
             ];
         }
     }
