@@ -8,12 +8,26 @@ function password_reset_config(array $config): array
     $defaults = [
         'public_base_url' => 'https://restartpassword.sgi.raei.com.ar',
         'ttl_seconds' => 1800,
-        'mail_from' => 'noreply@raei.com.ar',
+        'mail_from' => 'norepply@raei.com.ar',
         'mail_from_name' => 'SGI - Metalurgica RAEI',
         'app_login_url' => 'sgi://login',
+        'smtp' => [
+            'host' => 'smtp.office365.com',
+            'port' => 587,
+            'username' => 'norepply@raei.com.ar',
+            'password' => '',
+            'encryption' => 'tls',
+            'timeout_seconds' => 20,
+        ],
     ];
 
-    return array_merge($defaults, $config['password_reset'] ?? []);
+    $passwordResetConfig = $config['password_reset'] ?? [];
+    $passwordResetConfig['smtp'] = array_merge(
+        $defaults['smtp'],
+        $passwordResetConfig['smtp'] ?? []
+    );
+
+    return array_merge($defaults, $passwordResetConfig);
 }
 
 /** @return array{Id:string,Nombre:string,Apellido:string,Mail:string}|null */
@@ -80,14 +94,158 @@ function password_reset_send_mail(array $prConfig, string $toMail, string $nombr
         . "Si no solicitaste este cambio, ignora este correo.\n\n"
         . "Metalurgica RAEI S.A.";
 
+    return password_reset_send_smtp($prConfig, $toMail, $from, $fromName, $subject, $body);
+}
+
+function password_reset_send_smtp(
+    array $prConfig,
+    string $toMail,
+    string $from,
+    string $fromName,
+    string $subject,
+    string $body
+): bool {
+    $smtp = $prConfig['smtp'] ?? [];
+    $host = trim((string) ($smtp['host'] ?? ''));
+    $port = (int) ($smtp['port'] ?? 587);
+    $username = trim((string) ($smtp['username'] ?? ''));
+    $password = (string) ($smtp['password'] ?? '');
+    $encryption = strtolower(trim((string) ($smtp['encryption'] ?? 'tls')));
+    $timeout = max(5, (int) ($smtp['timeout_seconds'] ?? 20));
+
+    if ($host === '' || $username === '' || $password === '') {
+        error_log('[password_reset] Configuracion SMTP incompleta para recuperacion de clave');
+        return false;
+    }
+
+    $transport = $encryption === 'ssl' ? 'ssl://' : 'tcp://';
+    $socket = @stream_socket_client(
+        $transport . $host . ':' . $port,
+        $errno,
+        $errstr,
+        $timeout,
+        STREAM_CLIENT_CONNECT
+    );
+
+    if (!is_resource($socket)) {
+        error_log('[password_reset] No se pudo conectar al SMTP: ' . $errstr . ' (' . $errno . ')');
+        return false;
+    }
+
+    stream_set_timeout($socket, $timeout);
+
+    try {
+        password_reset_smtp_expect($socket, [220]);
+        password_reset_smtp_command($socket, 'EHLO ' . password_reset_smtp_hostname(), [250]);
+
+        if ($encryption === 'tls') {
+            password_reset_smtp_command($socket, 'STARTTLS', [220]);
+            if (!stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
+                throw new RuntimeException('No se pudo iniciar TLS con el SMTP');
+            }
+            password_reset_smtp_command($socket, 'EHLO ' . password_reset_smtp_hostname(), [250]);
+        }
+
+        password_reset_smtp_command($socket, 'AUTH LOGIN', [334]);
+        password_reset_smtp_command($socket, base64_encode($username), [334]);
+        password_reset_smtp_command($socket, base64_encode($password), [235]);
+        password_reset_smtp_command($socket, 'MAIL FROM:<' . $from . '>', [250]);
+        password_reset_smtp_command($socket, 'RCPT TO:<' . $toMail . '>', [250, 251]);
+        password_reset_smtp_command($socket, 'DATA', [354]);
+        password_reset_smtp_write($socket, password_reset_build_mime_message($toMail, $from, $fromName, $subject, $body) . "\r\n.");
+        password_reset_smtp_expect($socket, [250]);
+        password_reset_smtp_command($socket, 'QUIT', [221]);
+
+        fclose($socket);
+        return true;
+    } catch (Throwable $e) {
+        error_log('[password_reset] Error SMTP recuperacion de clave: ' . $e->getMessage());
+        @fclose($socket);
+        return false;
+    }
+}
+
+function password_reset_build_mime_message(
+    string $toMail,
+    string $from,
+    string $fromName,
+    string $subject,
+    string $body
+): string {
     $headers = [
         'MIME-Version: 1.0',
         'Content-Type: text/plain; charset=UTF-8',
-        'From: ' . sprintf('"%s" <%s>', addslashes($fromName), $from),
+        'Content-Transfer-Encoding: 8bit',
+        'From: ' . password_reset_format_mailbox($from, $fromName),
         'Reply-To: ' . $from,
+        'To: ' . $toMail,
+        'Subject: =?UTF-8?B?' . base64_encode($subject) . '?=',
     ];
 
-    return @mail($toMail, '=?UTF-8?B?' . base64_encode($subject) . '?=', $body, implode("\r\n", $headers));
+    return implode("\r\n", $headers) . "\r\n\r\n" . password_reset_dot_stuff($body);
+}
+
+function password_reset_format_mailbox(string $mail, string $name): string
+{
+    $encodedName = '=?UTF-8?B?' . base64_encode($name) . '?=';
+
+    return $encodedName . ' <' . $mail . '>';
+}
+
+function password_reset_dot_stuff(string $body): string
+{
+    $normalized = str_replace(["\r\n", "\r"], "\n", $body);
+    $normalized = preg_replace('/^\./m', '..', $normalized) ?? $normalized;
+
+    return str_replace("\n", "\r\n", $normalized);
+}
+
+function password_reset_smtp_hostname(): string
+{
+    $host = gethostname();
+
+    return is_string($host) && trim($host) !== '' ? trim($host) : 'localhost';
+}
+
+/** @param resource $socket */
+function password_reset_smtp_command($socket, string $command, array $expectedCodes): string
+{
+    password_reset_smtp_write($socket, $command);
+
+    return password_reset_smtp_expect($socket, $expectedCodes);
+}
+
+/** @param resource $socket */
+function password_reset_smtp_write($socket, string $line): void
+{
+    if (fwrite($socket, $line . "\r\n") === false) {
+        throw new RuntimeException('No se pudo escribir al servidor SMTP');
+    }
+}
+
+/** @param resource $socket */
+function password_reset_smtp_expect($socket, array $expectedCodes): string
+{
+    $response = '';
+
+    while (($line = fgets($socket, 515)) !== false) {
+        $response .= $line;
+        if (preg_match('/^(\d{3})([\s-])/', $line, $matches) === 1 && $matches[2] === ' ') {
+            $code = (int) $matches[1];
+            if (!in_array($code, $expectedCodes, true)) {
+                throw new RuntimeException('Respuesta SMTP inesperada: ' . trim($response));
+            }
+
+            return $response;
+        }
+    }
+
+    $meta = stream_get_meta_data($socket);
+    if (($meta['timed_out'] ?? false) === true) {
+        throw new RuntimeException('Timeout esperando respuesta SMTP');
+    }
+
+    throw new RuntimeException('El servidor SMTP cerro la conexion');
 }
 
 /**

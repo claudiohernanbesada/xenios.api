@@ -176,7 +176,7 @@ function handle_recuperar_clave_solicitud(PDO $pdo, array $config): void
     }
 
     $result = password_reset_request($pdo, $config, $correo);
-    $code = ($result['ok'] ?? false) ? 200 : 503;
+    $code = ($result['ok'] ?? false) ? 200 : 500;
     json_response($result, $code, $config);
 }
 
