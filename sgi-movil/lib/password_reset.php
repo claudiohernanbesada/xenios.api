@@ -243,7 +243,7 @@ function password_reset_build_html_body(string $textBody, ?string $logoCid): str
     }
 
     $logo = $logoCid !== null
-        ? '<div style="text-align:right;margin:0 0 24px;"><img src="cid:' . htmlspecialchars($logoCid, ENT_QUOTES, 'UTF-8') . '" alt="RAEI" style="display:inline-block;max-width:140px;height:auto;border:0;" /></div>'
+        ? '<div style="text-align:left;margin:0 0 24px;"><img src="cid:' . htmlspecialchars($logoCid, ENT_QUOTES, 'UTF-8') . '" alt="RAEI" style="display:inline-block;max-width:140px;height:auto;border:0;" /></div>'
         : '';
 
     return '<!DOCTYPE html><html lang="es"><body style="margin:0;padding:24px;background:#ffffff;color:#202124;font-family:Segoe UI,Arial,sans-serif;font-size:14px;line-height:1.5;">'
