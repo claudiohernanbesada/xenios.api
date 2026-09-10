@@ -79,7 +79,8 @@ try {
     h1 { font-size: 1.25rem; margin: 0 0 8px; text-align: center; font-weight: 600; }
     p.sub { margin: 0 0 20px; text-align: center; color: #5f6368; font-size: 0.9rem; line-height: 1.4; }
     label { display: block; font-size: 0.85rem; color: #5f6368; margin-bottom: 6px; }
-    .field { position: relative; margin-bottom: 14px; }
+    .field { margin-bottom: 14px; }
+    .password-wrap { position: relative; }
     input {
       width: 100%;
       padding: 12px 44px 12px 12px;
@@ -150,19 +151,23 @@ try {
         <input type="hidden" name="token" value="<?= htmlspecialchars($token, ENT_QUOTES, 'UTF-8') ?>" />
         <div class="field">
           <label for="clave">Nueva contraseña</label>
-          <input id="clave" name="clave" type="password" autocomplete="new-password" required minlength="10" />
-          <button type="button" class="toggle-eye" data-target="clave" aria-label="Mostrar contraseña" title="Mostrar contraseña" aria-pressed="false">
-            <svg class="icon-show" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
-            <svg class="icon-hide" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.81 2.81 1.39 4.22l3.05 3.05A13.07 13.07 0 0 0 1 12c1.73 4.39 6 7.5 11 7.5 1.68 0 3.27-.35 4.7-.98l3.08 3.08 1.41-1.41L2.81 2.81zM12 17c-2.76 0-5-2.24-5-5 0-1.1.36-2.12.97-2.94l1.43 1.43A2.98 2.98 0 0 0 9 12c0 1.66 1.34 3 3 3 .55 0 1.07-.15 1.51-.4l1.43 1.43c-.82.61-1.84.97-2.94.97zm0-10c2.76 0 5 2.24 5 5 0 .56-.09 1.1-.26 1.6l2.93 2.93A13.06 13.06 0 0 0 23 12c-1.73-4.39-6-7.5-11-7.5-1.22 0-2.39.19-3.48.54l2.17 2.17c.41-.14.85-.21 1.31-.21zm2.93 5.51-3.44-3.44c.17-.04.34-.07.51-.07 1.66 0 3 1.34 3 3 0 .17-.02.34-.07.51z"/></svg>
-          </button>
+          <div class="password-wrap">
+            <input id="clave" name="clave" type="password" autocomplete="new-password" required minlength="10" />
+            <button type="button" class="toggle-eye" data-target="clave" aria-label="Mostrar contraseña" title="Mostrar contraseña" aria-pressed="false">
+              <svg class="icon-show" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+              <svg class="icon-hide" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.81 2.81 1.39 4.22l3.05 3.05A13.07 13.07 0 0 0 1 12c1.73 4.39 6 7.5 11 7.5 1.68 0 3.27-.35 4.7-.98l3.08 3.08 1.41-1.41L2.81 2.81zM12 17c-2.76 0-5-2.24-5-5 0-1.1.36-2.12.97-2.94l1.43 1.43A2.98 2.98 0 0 0 9 12c0 1.66 1.34 3 3 3 .55 0 1.07-.15 1.51-.4l1.43 1.43c-.82.61-1.84.97-2.94.97zm0-10c2.76 0 5 2.24 5 5 0 .56-.09 1.1-.26 1.6l2.93 2.93A13.06 13.06 0 0 0 23 12c-1.73-4.39-6-7.5-11-7.5-1.22 0-2.39.19-3.48.54l2.17 2.17c.41-.14.85-.21 1.31-.21zm2.93 5.51-3.44-3.44c.17-.04.34-.07.51-.07 1.66 0 3 1.34 3 3 0 .17-.02.34-.07.51z"/></svg>
+            </button>
+          </div>
         </div>
         <div class="field">
           <label for="clave2">Repetir contraseña</label>
-          <input id="clave2" name="clave2" type="password" autocomplete="new-password" required minlength="10" />
-          <button type="button" class="toggle-eye" data-target="clave2" aria-label="Mostrar contraseña" title="Mostrar contraseña" aria-pressed="false">
-            <svg class="icon-show" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
-            <svg class="icon-hide" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.81 2.81 1.39 4.22l3.05 3.05A13.07 13.07 0 0 0 1 12c1.73 4.39 6 7.5 11 7.5 1.68 0 3.27-.35 4.7-.98l3.08 3.08 1.41-1.41L2.81 2.81zM12 17c-2.76 0-5-2.24-5-5 0-1.1.36-2.12.97-2.94l1.43 1.43A2.98 2.98 0 0 0 9 12c0 1.66 1.34 3 3 3 .55 0 1.07-.15 1.51-.4l1.43 1.43c-.82.61-1.84.97-2.94.97zm0-10c2.76 0 5 2.24 5 5 0 .56-.09 1.1-.26 1.6l2.93 2.93A13.06 13.06 0 0 0 23 12c-1.73-4.39-6-7.5-11-7.5-1.22 0-2.39.19-3.48.54l2.17 2.17c.41-.14.85-.21 1.31-.21zm2.93 5.51-3.44-3.44c.17-.04.34-.07.51-.07 1.66 0 3 1.34 3 3 0 .17-.02.34-.07.51z"/></svg>
-          </button>
+          <div class="password-wrap">
+            <input id="clave2" name="clave2" type="password" autocomplete="new-password" required minlength="10" />
+            <button type="button" class="toggle-eye" data-target="clave2" aria-label="Mostrar contraseña" title="Mostrar contraseña" aria-pressed="false">
+              <svg class="icon-show" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+              <svg class="icon-hide" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.81 2.81 1.39 4.22l3.05 3.05A13.07 13.07 0 0 0 1 12c1.73 4.39 6 7.5 11 7.5 1.68 0 3.27-.35 4.7-.98l3.08 3.08 1.41-1.41L2.81 2.81zM12 17c-2.76 0-5-2.24-5-5 0-1.1.36-2.12.97-2.94l1.43 1.43A2.98 2.98 0 0 0 9 12c0 1.66 1.34 3 3 3 .55 0 1.07-.15 1.51-.4l1.43 1.43c-.82.61-1.84.97-2.94.97zm0-10c2.76 0 5 2.24 5 5 0 .56-.09 1.1-.26 1.6l2.93 2.93A13.06 13.06 0 0 0 23 12c-1.73-4.39-6-7.5-11-7.5-1.22 0-2.39.19-3.48.54l2.17 2.17c.41-.14.85-.21 1.31-.21zm2.93 5.51-3.44-3.44c.17-.04.34-.07.51-.07 1.66 0 3 1.34 3 3 0 .17-.02.34-.07.51z"/></svg>
+            </button>
+          </div>
         </div>
         <p class="policy">Mínimo 10 caracteres, una mayúscula, una minúscula, dos números y un carácter especial.</p>
         <button type="submit" class="primary" id="btn-submit">Guardar contraseña</button>
