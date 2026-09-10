@@ -10,7 +10,7 @@ function password_reset_config(array $config): array
         'ttl_seconds' => 1800,
         'mail_from' => 'noreply@raei.com.ar',
         'mail_from_name' => 'No Reply - Metalurgica RAEI',
-        'mail_logo_path' => dirname(__DIR__, 3) . '/sgiRAEI.Movil/assets/logoRAEI.png',
+        'mail_logo_path' => dirname(__DIR__) . '/assets/logoRAEI.png',
         'app_login_url' => 'sgi://login',
         'smtp' => [
             'host' => 'smtp.office365.com',

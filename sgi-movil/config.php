@@ -148,7 +148,7 @@ return [
         'mail_from_name' => getenv('SGI_MAIL_DISPLAY_NAME') ?: 'No Reply - Metalúrgica RAEI',
         'mail_logo_path' => sgi_movil_first_existing_file([
             getenv('SGI_MAIL_LOGO_PATH') ?: '',
-            dirname(__DIR__, 2) . '/sgiRAEI.Movil/assets/logoRAEI.png',
+            __DIR__ . '/assets/logoRAEI.png',
             __DIR__ . '/reset-password/logo-raei.png',
             'C:\Trabajos\www\sgiRAEI\sgiRAEI\wwwroot\img\logoRaei.png',
         ]),
