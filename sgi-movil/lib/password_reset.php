@@ -10,6 +10,7 @@ function password_reset_config(array $config): array
         'ttl_seconds' => 1800,
         'mail_from' => 'noreply@raei.com.ar',
         'mail_from_name' => 'No Reply - Metalurgica RAEI',
+        'mail_logo_path' => dirname(__DIR__, 3) . '/sgiRAEI.Movil/assets/logoRAEI.png',
         'app_login_url' => 'sgi://login',
         'smtp' => [
             'host' => 'smtp.office365.com',
@@ -90,10 +91,12 @@ function password_reset_send_mail(array $prConfig, string $toMail, string $nombr
     $subject = 'Restablecer contrasena - SGI';
     $body =
         "Hola {$nombre},\n\n"
-        . "Recibimos una solicitud para restablecer la contrasena de tu cuenta en la app SGI.\n\n"
+        . "Recibimos una solicitud para restablecer la contrasena de tu cuenta en la App SGI Movil.\n\n"
         . "Abri el siguiente enlace (valido por 30 minutos):\n{$link}\n\n"
         . "Si no solicitaste este cambio, ignora este correo.\n\n"
-        . "Metalurgica RAEI S.A.";
+        . "Coordialmente,\n"
+        . "Metalúrgica R.A.E.I S.A\n"
+        . "Equipo de Desarrollo SGI";
 
     return password_reset_send_smtp($prConfig, $toMail, $from, $fromName, $subject, $body);
 }
@@ -154,7 +157,7 @@ function password_reset_send_smtp(
         password_reset_smtp_command($socket, 'MAIL FROM:<' . $from . '>', [250]);
         password_reset_smtp_command($socket, 'RCPT TO:<' . $toMail . '>', [250, 251]);
         password_reset_smtp_command($socket, 'DATA', [354]);
-        password_reset_smtp_write($socket, password_reset_build_mime_message($toMail, $from, $fromName, $subject, $body) . "\r\n.");
+        password_reset_smtp_write($socket, password_reset_build_mime_message($prConfig, $toMail, $from, $fromName, $subject, $body) . "\r\n.");
         password_reset_smtp_expect($socket, [250]);
         password_reset_smtp_command($socket, 'QUIT', [221]);
 
@@ -168,23 +171,86 @@ function password_reset_send_smtp(
 }
 
 function password_reset_build_mime_message(
+    array $prConfig,
     string $toMail,
     string $from,
     string $fromName,
     string $subject,
     string $body
 ): string {
+    $logoPath = trim((string) ($prConfig['mail_logo_path'] ?? ''));
+    $logoBytes = $logoPath !== '' && is_file($logoPath) && is_readable($logoPath)
+        ? file_get_contents($logoPath)
+        : false;
+    $logoCid = 'logo-raei-reset';
+    $relatedBoundary = 'sgi-reset-' . bin2hex(random_bytes(8));
+    $alternativeBoundary = 'sgi-reset-alt-' . bin2hex(random_bytes(8));
+    $html = password_reset_build_html_body($body, $logoBytes !== false ? $logoCid : null);
+
     $headers = [
         'MIME-Version: 1.0',
-        'Content-Type: text/plain; charset=UTF-8',
-        'Content-Transfer-Encoding: 8bit',
+        'Content-Type: multipart/related; boundary="' . $relatedBoundary . '"',
         'From: ' . password_reset_format_mailbox($from, $fromName),
         'Reply-To: ' . $from,
         'To: ' . $toMail,
         'Subject: =?UTF-8?B?' . base64_encode($subject) . '?=',
     ];
 
-    return implode("\r\n", $headers) . "\r\n\r\n" . password_reset_dot_stuff($body);
+    $message = implode("\r\n", $headers) . "\r\n\r\n";
+    $message .= '--' . $relatedBoundary . "\r\n";
+    $message .= 'Content-Type: multipart/alternative; boundary="' . $alternativeBoundary . '"' . "\r\n\r\n";
+    $message .= '--' . $alternativeBoundary . "\r\n";
+    $message .= "Content-Type: text/plain; charset=UTF-8\r\n";
+    $message .= "Content-Transfer-Encoding: 8bit\r\n\r\n";
+    $message .= password_reset_dot_stuff($body) . "\r\n\r\n";
+    $message .= '--' . $alternativeBoundary . "\r\n";
+    $message .= "Content-Type: text/html; charset=UTF-8\r\n";
+    $message .= "Content-Transfer-Encoding: 8bit\r\n\r\n";
+    $message .= password_reset_dot_stuff($html) . "\r\n\r\n";
+    $message .= '--' . $alternativeBoundary . "--\r\n";
+
+    if ($logoBytes !== false) {
+        $message .= '--' . $relatedBoundary . "\r\n";
+        $message .= "Content-Type: image/png; name=\"logoRaei.png\"\r\n";
+        $message .= "Content-Transfer-Encoding: base64\r\n";
+        $message .= "Content-ID: <{$logoCid}>\r\n";
+        $message .= "Content-Disposition: inline; filename=\"logoRaei.png\"\r\n\r\n";
+        $message .= chunk_split(base64_encode($logoBytes), 76, "\r\n") . "\r\n";
+    }
+
+    $message .= '--' . $relatedBoundary . '--';
+
+    return $message;
+}
+
+function password_reset_build_html_body(string $textBody, ?string $logoCid): string
+{
+    $lines = preg_split('/\R/', $textBody) ?: [];
+    $paragraphs = [];
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if ($line === '') {
+            continue;
+        }
+
+        if (filter_var($line, FILTER_VALIDATE_URL)) {
+            $safeUrl = htmlspecialchars($line, ENT_QUOTES, 'UTF-8');
+            $paragraphs[] = '<p style="margin:0 0 16px;"><a href="' . $safeUrl . '" style="color:#1a73e8;">' . $safeUrl . '</a></p>';
+            continue;
+        }
+
+        $paragraphs[] = '<p style="margin:0 0 16px;">' . htmlspecialchars($line, ENT_QUOTES, 'UTF-8') . '</p>';
+    }
+
+    $logo = $logoCid !== null
+        ? '<div style="text-align:right;margin:0 0 24px;"><img src="cid:' . htmlspecialchars($logoCid, ENT_QUOTES, 'UTF-8') . '" alt="RAEI" style="display:inline-block;max-width:140px;height:auto;border:0;" /></div>'
+        : '';
+
+    return '<!DOCTYPE html><html lang="es"><body style="margin:0;padding:24px;background:#ffffff;color:#202124;font-family:Segoe UI,Arial,sans-serif;font-size:14px;line-height:1.5;">'
+        . '<div style="max-width:640px;margin:0 auto;">'
+        . $logo
+        . implode('', $paragraphs)
+        . '</div></body></html>';
 }
 
 function password_reset_format_mailbox(string $mail, string $name): string

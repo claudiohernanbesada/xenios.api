@@ -146,6 +146,12 @@ return [
         'ttl_seconds' => 60 * 30,
         'mail_from' => getenv('SGI_MAIL_FROM') ?: 'norepply@raei.com.ar',
         'mail_from_name' => getenv('SGI_MAIL_DISPLAY_NAME') ?: 'No Reply - Metalúrgica RAEI',
+        'mail_logo_path' => sgi_movil_first_existing_file([
+            getenv('SGI_MAIL_LOGO_PATH') ?: '',
+            dirname(__DIR__, 2) . '/sgiRAEI.Movil/assets/logoRAEI.png',
+            __DIR__ . '/reset-password/logo-raei.png',
+            'C:\Trabajos\www\sgiRAEI\sgiRAEI\wwwroot\img\logoRaei.png',
+        ]),
         'app_login_url' => getenv('SGI_APP_LOGIN_URL') ?: 'sgi://login',
         'smtp' => [
             'host' => getenv('SGI_SMTP_HOST') ?: 'smtp.office365.com',
