@@ -9,13 +9,14 @@ function password_reset_config(array $config): array
         'public_base_url' => 'https://restartpassword.sgi.raei.com.ar',
         'ttl_seconds' => 1800,
         'mail_from' => 'norepply@raei.com.ar',
-        'mail_from_name' => 'SGI - Metalurgica RAEI',
+        'mail_from_name' => 'No Reply - Metalurgica RAEI',
         'app_login_url' => 'sgi://login',
         'smtp' => [
             'host' => 'smtp.office365.com',
             'port' => 587,
             'username' => 'norepply@raei.com.ar',
             'password' => '',
+            'ssl' => true,
             'encryption' => 'tls',
             'timeout_seconds' => 20,
         ],
@@ -110,7 +111,8 @@ function password_reset_send_smtp(
     $port = (int) ($smtp['port'] ?? 587);
     $username = trim((string) ($smtp['username'] ?? ''));
     $password = (string) ($smtp['password'] ?? '');
-    $encryption = strtolower(trim((string) ($smtp['encryption'] ?? 'tls')));
+    $ssl = filter_var($smtp['ssl'] ?? true, FILTER_VALIDATE_BOOLEAN);
+    $encryption = strtolower(trim((string) ($smtp['encryption'] ?? ($ssl ? 'tls' : ''))));
     $timeout = max(5, (int) ($smtp['timeout_seconds'] ?? 20));
 
     if ($host === '' || $username === '' || $password === '') {
