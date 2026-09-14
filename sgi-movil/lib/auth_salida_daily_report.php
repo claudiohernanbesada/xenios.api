@@ -125,10 +125,11 @@ function auth_salida_daily_report_text_body(array $rows): string
     }
 
     return $body
+        . "\n\n"
         . "Que tengas muy buen día\n\n"
         . "Cordialmente,\n\n"
-        . "El Equipo de Desarrollo SGI\n"
-        . "Metalúrgica RAEI S.A.";
+        . "<strong>El Equipo de Desarrollo SGI</strong>\n"
+        . "<strong>Metalúrgica RAEI S.A.</strong>";
 }
 
 /** @param list<array<string, string>> $rows */
