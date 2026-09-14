@@ -92,21 +92,56 @@ function auth_salida_daily_report_rows(PDO $pdo, DateTimeImmutable $date): array
     return $rows;
 }
 
+/** @return list<array<string, string>> */
+function auth_salida_daily_report_license_rows(PDO $pdo, DateTimeImmutable $date): array
+{
+    $fecha = $date->format('Y-m-d');
+    $stmt = $pdo->prepare(
+        'SELECT p.Legajo, p.Nombre, p.Apellido,
+                m.Motivo, pl.Comentarios, pl.Desde, pl.Hasta
+         FROM PersonalLicencias pl
+         INNER JOIN Personal p ON p.Id = pl.PersonalId
+         INNER JOIN PersonalLicenciasMotivo m ON m.Id = pl.PersonalLicenciasMotivoId
+         WHERE pl.Estado = 1
+           AND pl.Desde <= :fecha
+           AND pl.Hasta >= :fecha
+         ORDER BY pl.Desde, p.Apellido, p.Nombre'
+    );
+    $stmt->execute(['fecha' => $fecha]);
+
+    $rows = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $rows[] = [
+            'legajo' => (string) $row['Legajo'],
+            'empleado' => trim((string) $row['Apellido'] . ', ' . (string) $row['Nombre']),
+            'motivo' => (string) $row['Motivo'],
+            'comentarios' => trim((string) ($row['Comentarios'] ?? '')),
+            'desde' => auth_salida_daily_report_format_date((string) $row['Desde']),
+            'hasta' => auth_salida_daily_report_format_date((string) $row['Hasta']),
+        ];
+    }
+
+    return $rows;
+}
+
 function auth_salida_daily_report_subject(DateTimeImmutable $date): string
 {
     return 'Autorizaciones de Salida - ' . $date->format('d/m/Y');
 }
 
-/** @param list<array<string, string>> $rows */
-function auth_salida_daily_report_text_body(array $rows): string
+/**
+ * @param list<array<string, string>> $authRows
+ * @param list<array<string, string>> $licenseRows
+ */
+function auth_salida_daily_report_text_body(array $authRows, array $licenseRows): string
 {
     $body = "Buenos Días!\n\n"
         . "Se pone en conocimiento de las Autorizaciones de Salida correspondientes al día de la fecha:\n\n";
 
-    if ($rows === []) {
+    if ($authRows === []) {
         $body .= "No se registran autorizaciones de salida para la fecha.\n\n";
     } else {
-        foreach ($rows as $row) {
+        foreach ($authRows as $row) {
             $body .= sprintf(
                 "- %s | %s | %s %s a %s %s | %s%s | Salida efectiva: %s | Regreso efectivo: %s\n",
                 $row['legajo'],
@@ -124,26 +159,47 @@ function auth_salida_daily_report_text_body(array $rows): string
         $body .= "\n\n";
     }
 
+    $body .= "Se pone en conocimiento de las Licencias correspondientes al día de la fecha:\n\n";
+    if ($licenseRows === []) {
+        $body .= "No se registran licencias para la fecha.\n\n";
+    } else {
+        foreach ($licenseRows as $row) {
+            $body .= sprintf(
+                "- %s | %s | %s | %s | %s a %s\n",
+                $row['legajo'],
+                $row['empleado'],
+                $row['motivo'],
+                $row['comentarios'] !== '' ? $row['comentarios'] : 'S/C',
+                $row['desde'],
+                $row['hasta']
+            );
+        }
+        $body .= "\n\n";
+    }
+
     return $body
         . "Que tengas muy buen día\n\n"
         . "Cordialmente,\n\n"
-        . "<strong>El Equipo de Desarrollo SGI\n"
-        . "Metalúrgica RAEI S.A.</strong>";
+        . "El Equipo de Desarrollo SGI\n"
+        . "Metalúrgica RAEI S.A.";
 }
 
-/** @param list<array<string, string>> $rows */
-function auth_salida_daily_report_html_body(array $rows, ?string $logoCid): string
+/**
+ * @param list<array<string, string>> $authRows
+ * @param list<array<string, string>> $licenseRows
+ */
+function auth_salida_daily_report_html_body(array $authRows, array $licenseRows, ?string $logoCid): string
 {
     $logo = $logoCid !== null
         ? '<div style="margin:0 0 24px;"><img src="cid:' . htmlspecialchars($logoCid, ENT_QUOTES, 'UTF-8') . '" alt="RAEI" style="display:inline-block;max-width:140px;height:auto;border:0;" /></div>'
         : '';
 
-    $tableRows = '';
-    if ($rows === []) {
-        $tableRows = '<tr><td colspan="10" style="padding:10px;border:1px solid #d0d7de;text-align:center;">No se registran autorizaciones de salida para la fecha.</td></tr>';
+    $authTableRows = '';
+    if ($authRows === []) {
+        $authTableRows = auth_salida_daily_report_empty_row(10, 'No se registran autorizaciones de salida para la fecha.');
     } else {
-        foreach ($rows as $row) {
-            $tableRows .= '<tr>'
+        foreach ($authRows as $row) {
+            $authTableRows .= '<tr>'
                 . auth_salida_daily_report_td($row['legajo'])
                 . auth_salida_daily_report_td($row['empleado'])
                 . auth_salida_daily_report_td($row['fechaSalida'])
@@ -154,6 +210,22 @@ function auth_salida_daily_report_html_body(array $rows, ?string $logoCid): stri
                 . auth_salida_daily_report_td($row['detalle'] !== '' ? $row['detalle'] : '-')
                 . auth_salida_daily_report_td($row['salidaEfectiva'] !== '' ? $row['salidaEfectiva'] : 'No registrada')
                 . auth_salida_daily_report_td($row['regresoEfectivo'] !== '' ? $row['regresoEfectivo'] : 'No registrado')
+                . '</tr>';
+        }
+    }
+
+    $licenseTableRows = '';
+    if ($licenseRows === []) {
+        $licenseTableRows = auth_salida_daily_report_empty_row(6, 'No se registran licencias para la fecha.');
+    } else {
+        foreach ($licenseRows as $row) {
+            $licenseTableRows .= '<tr>'
+                . auth_salida_daily_report_td($row['legajo'])
+                . auth_salida_daily_report_td($row['empleado'])
+                . auth_salida_daily_report_td($row['motivo'])
+                . auth_salida_daily_report_td($row['comentarios'] !== '' ? $row['comentarios'] : 'S/C')
+                . auth_salida_daily_report_td($row['desde'])
+                . auth_salida_daily_report_td($row['hasta'])
                 . '</tr>';
         }
     }
@@ -176,7 +248,20 @@ function auth_salida_daily_report_html_body(array $rows, ?string $logoCid): stri
         . auth_salida_daily_report_th('Salida Efectiva')
         . auth_salida_daily_report_th('Regreso Efectivo')
         . '</tr></thead><tbody>'
-        . $tableRows
+        . $authTableRows
+        . '</tbody></table>'
+        . '<div style="height:18px;line-height:18px;">&nbsp;</div>'
+        . '<p style="margin:0 0 18px;">Se pone en conocimiento de las Licencias correspondientes al día de la fecha:</p>'
+        . '<table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;font-size:13px;margin:0;">'
+        . '<thead><tr>'
+        . auth_salida_daily_report_th('Legajo')
+        . auth_salida_daily_report_th('Empleado')
+        . auth_salida_daily_report_th('Motivo')
+        . auth_salida_daily_report_th('Comentarios')
+        . auth_salida_daily_report_th('Desde')
+        . auth_salida_daily_report_th('Hasta')
+        . '</tr></thead><tbody>'
+        . $licenseTableRows
         . '</tbody></table>'
         . '<div style="height:16px;line-height:16px;">&nbsp;</div>'
         . '<p style="margin:0 0 16px;">Que tengas muy buen día</p>'
@@ -189,6 +274,7 @@ function auth_salida_daily_report_send(PDO $pdo, array $config, DateTimeImmutabl
     $reportConfig = auth_salida_daily_report_config($config);
     $recipients = auth_salida_daily_report_recipients($pdo);
     $rows = auth_salida_daily_report_rows($pdo, $date);
+    $licenseRows = auth_salida_daily_report_license_rows($pdo, $date);
 
     if ($recipients === []) {
         return [
@@ -196,15 +282,17 @@ function auth_salida_daily_report_send(PDO $pdo, array $config, DateTimeImmutabl
             'sent' => 0,
             'recipients' => [],
             'rows' => count($rows),
+            'licenseRows' => count($licenseRows),
             'message' => 'No hay usuarios activos con rol ' . AUTH_SALIDA_DAILY_REPORT_ROLE,
         ];
     }
 
     $subject = auth_salida_daily_report_subject($date);
-    $textBody = auth_salida_daily_report_text_body($rows);
+    $textBody = auth_salida_daily_report_text_body($rows, $licenseRows);
     $logoPath = trim((string) ($reportConfig['mail_logo_path'] ?? ''));
     $htmlBody = auth_salida_daily_report_html_body(
         $rows,
+        $licenseRows,
         $logoPath !== '' && is_file($logoPath) && is_readable($logoPath) ? 'logo-raei-auth-salida' : null
     );
     $sent = 0;
@@ -232,6 +320,7 @@ function auth_salida_daily_report_send(PDO $pdo, array $config, DateTimeImmutabl
         'sent' => $sent,
         'recipients' => array_column($recipients, 'mail'),
         'rows' => count($rows),
+        'licenseRows' => count($licenseRows),
         'failed' => $failed,
     ];
 }
@@ -371,6 +460,13 @@ function auth_salida_daily_report_td(string $text): string
     return '<td style="padding:8px;border:1px solid #d0d7de;vertical-align:top;">'
         . htmlspecialchars($text, ENT_QUOTES, 'UTF-8')
         . '</td>';
+}
+
+function auth_salida_daily_report_empty_row(int $colspan, string $text): string
+{
+    return '<tr><td colspan="' . $colspan . '" style="padding:10px;border:1px solid #d0d7de;text-align:center;">'
+        . htmlspecialchars($text, ENT_QUOTES, 'UTF-8')
+        . '</td></tr>';
 }
 
 function auth_salida_daily_report_format_date(string $value): string

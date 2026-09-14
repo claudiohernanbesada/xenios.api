@@ -47,6 +47,7 @@ require_once dirname(__DIR__) . '/lib/auth_salida_daily_report.php';
 
 $pdo = db_connect($config);
 $rows = auth_salida_daily_report_rows($pdo, $date);
+$licenseRows = auth_salida_daily_report_license_rows($pdo, $date);
 $recipients = auth_salida_daily_report_recipients($pdo);
 
 if ($dryRun) {
@@ -56,6 +57,7 @@ if ($dryRun) {
         'subject' => auth_salida_daily_report_subject($date),
         'recipients' => array_column($recipients, 'mail'),
         'rows' => $rows,
+        'licenseRows' => $licenseRows,
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n";
     flock($lock, LOCK_UN);
     fclose($lock);
