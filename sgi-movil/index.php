@@ -17,6 +17,7 @@ require_once __DIR__ . '/lib/auth_salida_list.php';
 require_once __DIR__ . '/lib/auth_salida_scan.php';
 require_once __DIR__ . '/lib/usuarios.php';
 require_once __DIR__ . '/lib/areas.php';
+require_once __DIR__ . '/lib/reportes_sgi.php';
 
 $config = require __DIR__ . '/config.php';
 apply_cors($config);
@@ -68,6 +69,9 @@ try {
         $method === 'GET' && $path === '/novedades' => handle_novedades_list($pdo, $config),
         $method === 'GET' && $path === '/usuarios' => handle_usuarios_list($pdo, $config),
         $method === 'GET' && $path === '/areas' => handle_areas_list($pdo, $config),
+        $method === 'GET' && $path === '/reportes/asistencia' => handle_reporte_asistencia_sgi($pdo, $config),
+        $method === 'GET' && $path === '/reportes/asistencia-detallada' => handle_reporte_asistencia_detallada_sgi($pdo, $config),
+        $method === 'GET' && $path === '/reportes/horas-trabajadas' => handle_reporte_horas_trabajadas_sgi($pdo, $config),
         $method === 'POST' && $path === '/novedades' => handle_novedades_enviar($pdo, $config),
         default => handle_novedades_routes($pdo, $config, $path, $method),
     };
@@ -766,6 +770,91 @@ function handle_areas_list(PDO $pdo, array $config): void
     require_gestion_role($auth['roles'], $config);
 
     json_response(['areas' => areas_listar_activas($pdo)], 200, $config);
+}
+
+// GET /reportes/asistencia?year=2026&month=8&sede=&areaIds=guid,guid
+// Endpoint server-to-server para SGI web y móvil. Requiere token general.
+function handle_reporte_asistencia_sgi(PDO $pdo, array $config): void
+{
+    if (!validar_api_key($config)) {
+        json_response(['message' => 'Error de seguridad AK-NOT_FOUND'], 401, $config);
+        return;
+    }
+
+    $year = (int) ($_GET['year'] ?? date('Y'));
+    $month = (int) ($_GET['month'] ?? date('n'));
+    if ($year < 2000 || $year > 2100 || $month < 1 || $month > 12) {
+        json_response(['message' => 'year/month inválidos'], 400, $config);
+        return;
+    }
+
+    $sede = trim((string) ($_GET['sede'] ?? ''));
+    json_response([
+        'reporte' => reportes_sgi_asistencia(
+            $pdo,
+            $year,
+            $month,
+            $sede !== '' ? $sede : null,
+            reportes_sgi_area_ids_desde_query()
+        ),
+    ], 200, $config);
+}
+
+// GET /reportes/asistencia-detallada?year=2026&month=8&sede=&areaIds=guid,guid
+// Endpoint server-to-server para SGI web. Requiere token general.
+function handle_reporte_asistencia_detallada_sgi(PDO $pdo, array $config): void
+{
+    if (!validar_api_key($config)) {
+        json_response(['message' => 'Error de seguridad AK-NOT_FOUND'], 401, $config);
+        return;
+    }
+
+    $year = (int) ($_GET['year'] ?? date('Y'));
+    $month = (int) ($_GET['month'] ?? date('n'));
+    if ($year < 2000 || $year > 2100 || $month < 1 || $month > 12) {
+        json_response(['message' => 'year/month inválidos'], 400, $config);
+        return;
+    }
+
+    $sede = trim((string) ($_GET['sede'] ?? ''));
+    json_response([
+        'reporte' => reportes_sgi_asistencia_detallada(
+            $pdo,
+            $year,
+            $month,
+            $sede !== '' ? $sede : null,
+            reportes_sgi_area_ids_desde_query()
+        ),
+    ], 200, $config);
+}
+
+// GET /reportes/horas-trabajadas?fechaInicio=YYYY-MM-DD&fechaFin=YYYY-MM-DD&tipoContratacionId=0&areaIds=guid,guid
+// Endpoint server-to-server para SGI web y móvil. Requiere token general.
+function handle_reporte_horas_trabajadas_sgi(PDO $pdo, array $config): void
+{
+    if (!validar_api_key($config)) {
+        json_response(['message' => 'Error de seguridad AK-NOT_FOUND'], 401, $config);
+        return;
+    }
+
+    $fechaInicio = trim((string) ($_GET['fechaInicio'] ?? ''));
+    $fechaFin = trim((string) ($_GET['fechaFin'] ?? ''));
+    if ($fechaInicio === '' || $fechaFin === '') {
+        json_response(['message' => 'fechaInicio y fechaFin son requeridos'], 400, $config);
+        return;
+    }
+
+    $tipoContratacionId = isset($_GET['tipoContratacionId']) ? (int) $_GET['tipoContratacionId'] : null;
+    json_response([
+        'reporte' => reportes_sgi_horas_trabajadas(
+            $pdo,
+            $fechaInicio,
+            $fechaFin,
+            $tipoContratacionId,
+            reportes_sgi_area_ids_desde_query(),
+            $config
+        ),
+    ], 200, $config);
 }
 
 // GET /novedades — bandeja del usuario logueado
