@@ -180,7 +180,7 @@ function auth_salida_daily_report_html_body(array $rows, ?string $logoCid): stri
         . '</tbody></table>'
         . '<div style="height:16px;line-height:16px;">&nbsp;</div>'
         . '<p style="margin:0 0 16px;">Que tengas muy buen día</p>'
-        . '<p style="margin:0;"><strong>Cordialmente,<br><br>El Equipo de Desarrollo SGI<br>Metalúrgica RAEI S.A.</strong></p>'
+        . '<p style="margin:0;">Cordialmente,<br><br><strong>El Equipo de Desarrollo SGI<br>Metalúrgica RAEI S.A.</strong></p>'
         . '</div></body></html>';
 }
 
