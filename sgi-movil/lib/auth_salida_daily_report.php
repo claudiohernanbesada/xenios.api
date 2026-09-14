@@ -163,7 +163,7 @@ function auth_salida_daily_report_html_body(array $rows, ?string $logoCid): stri
         . $logo
         . '<p style="margin:0 0 16px;">Buenos Días!</p>'
         . '<p style="margin:0 0 18px;">Se pone en conocimiento de las Autorizaciones de Salida correspondientes al día de la fecha:</p>'
-        . '<table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;font-size:13px;margin:0 0 24px;">'
+        . '<table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;font-size:13px;margin:0 0 36px;">'
         . '<thead><tr>'
         . auth_salida_daily_report_th('Legajo')
         . auth_salida_daily_report_th('Empleado')
@@ -178,8 +178,8 @@ function auth_salida_daily_report_html_body(array $rows, ?string $logoCid): stri
         . '</tr></thead><tbody>'
         . $tableRows
         . '</tbody></table>'
-        . '<p style="margin:0 0 16px;">Que tengas muy buen día</p>'
-        . '<p style="margin:0;">Cordialmente,<br><br>El Equipo de Desarrollo SGI<br>Metalúrgica RAEI S.A.</p>'
+        . '<p style="margin:0 0 16px;"><strong>Que tengas muy buen día</strong></p>'
+        . '<p style="margin:0;"><strong>Cordialmente,<br><br>El Equipo de Desarrollo SGI<br>Metalúrgica RAEI S.A.</strong></p>'
         . '</div></body></html>';
 }
 
