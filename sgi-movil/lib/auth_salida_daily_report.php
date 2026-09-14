@@ -233,7 +233,7 @@ function auth_salida_daily_report_html_body(array $authRows, array $licenseRows,
         . '<div style="max-width:980px;margin:0 auto;">'
         . $logo
         . '<p style="margin:0 0 16px;">Buenos Días!</p>'
-        . '<p style="margin:0 0 18px;">Se pone en conocimiento de las Autorizaciones de Salida correspondientes al día de la fecha:</p>'
+        . '<p style="margin:0 0 18px;">Se pone en conocimiento de las <strong>Autorizaciones de Salida</strong> correspondientes al día de la fecha:</p>'
         . '<table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;font-size:13px;margin:0;">'
         . '<thead><tr>'
         . auth_salida_daily_report_th('Legajo')
@@ -250,7 +250,7 @@ function auth_salida_daily_report_html_body(array $authRows, array $licenseRows,
         . $authTableRows
         . '</tbody></table>'
         . '<div style="height:18px;line-height:18px;">&nbsp;</div>'
-        . '<p style="margin:0 0 18px;">Se pone en conocimiento de las Licencias correspondientes al día de la fecha:</p>'
+        . '<p style="margin:0 0 18px;">Se pone en conocimiento de las <strong>Licencias</strong> correspondientes al día de la fecha:</p>'
         . '<table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;font-size:13px;margin:0;">'
         . '<thead><tr>'
         . auth_salida_daily_report_th('Legajo')
