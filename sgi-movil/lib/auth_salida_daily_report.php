@@ -126,7 +126,7 @@ function auth_salida_daily_report_license_rows(PDO $pdo, DateTimeImmutable $date
 
 function auth_salida_daily_report_subject(DateTimeImmutable $date): string
 {
-    return 'Autorizaciones de Salida - ' . $date->format('d/m/Y');
+    return 'Autorizaciones de Salida y Licencias - ' . $date->format('d/m/Y');
 }
 
 /**
@@ -178,7 +178,6 @@ function auth_salida_daily_report_text_body(array $authRows, array $licenseRows)
     }
 
     return $body
-        . "Que tengas muy buen día\n\n"
         . "Cordialmente,\n\n"
         . "El Equipo de Desarrollo SGI\n"
         . "Metalúrgica RAEI S.A.";
@@ -264,7 +263,6 @@ function auth_salida_daily_report_html_body(array $authRows, array $licenseRows,
         . $licenseTableRows
         . '</tbody></table>'
         . '<div style="height:16px;line-height:16px;">&nbsp;</div>'
-        . '<p style="margin:0 0 16px;">Que tengas muy buen día</p>'
         . '<p style="margin:0;">Cordialmente,<br><br><strong>El Equipo de Desarrollo SGI<br>Metalúrgica RAEI S.A.</strong></p>'
         . '</div></body></html>';
 }
