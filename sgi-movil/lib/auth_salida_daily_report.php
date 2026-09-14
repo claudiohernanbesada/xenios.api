@@ -136,10 +136,10 @@ function auth_salida_daily_report_subject(DateTimeImmutable $date): string
 function auth_salida_daily_report_text_body(array $authRows, array $licenseRows): string
 {
     $body = "Buenos Días!\n\n"
-        . "Se pone en conocimiento de las Autorizaciones de Salida correspondientes al día de la fecha:\n\n";
+        . "Se pone en conocimiento de las <strong>Autorizaciones de Salida</strong> correspondientes al día de la fecha:\n\n";
 
     if ($authRows === []) {
-        $body .= "No se registran autorizaciones de salida para la fecha.\n\n";
+        $body .= "No se registran Autorizaciones de Salida para la fecha.\n\n";
     } else {
         foreach ($authRows as $row) {
             $body .= sprintf(
@@ -159,9 +159,9 @@ function auth_salida_daily_report_text_body(array $authRows, array $licenseRows)
         $body .= "\n\n";
     }
 
-    $body .= "Se pone en conocimiento de las Licencias correspondientes al día de la fecha:\n\n";
+    $body .= "Se pone en conocimiento de las <strong>Licencias</strong> correspondientes al día de la fecha:\n\n";
     if ($licenseRows === []) {
-        $body .= "No se registran licencias para la fecha.\n\n";
+        $body .= "No se registran Licencias para la fecha.\n\n";
     } else {
         foreach ($licenseRows as $row) {
             $body .= sprintf(
