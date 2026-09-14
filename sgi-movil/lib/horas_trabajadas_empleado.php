@@ -471,6 +471,7 @@ function horas_trabajadas_armar_respuesta(
         'legajo' => (int) ($empleado['Legajo'] ?? 0),
         'nombre' => (string) ($empleado['Nombre'] ?? ''),
         'apellido' => (string) ($empleado['Apellido'] ?? ''),
+        'foto' => (string) ($empleado['Foto'] ?? ''),
         'estado' => (int) ($empleado['Estado'] ?? 1),
         'fechaBaja' => ht_format_fecha_baja($empleado['FechaBaja'] ?? null),
         'horasTrabajadasFormateadas' => sprintf('%02d:%02d', $horasTrab, $restoTrab),

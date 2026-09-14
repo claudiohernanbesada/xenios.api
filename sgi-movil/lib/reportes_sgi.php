@@ -154,8 +154,8 @@ function reportes_sgi_asistencia(PDO $pdo, int $year, int $month, ?string $sedeI
             'sede' => (string) ($emp['Sede'] ?? ''),
             'estado' => (int) ($emp['Estado'] ?? 1),
             'fechaBaja' => $emp['FechaBaja'] ? substr((string) $emp['FechaBaja'], 0, 10) : null,
-            'days' => $days,
-            'razonAusencia' => reportes_sgi_razones_ausencia($pdo, (string) $emp['Id'], $desde, $hasta),
+            'days' => (object) $days,
+            'razonAusencia' => (object) reportes_sgi_razones_ausencia($pdo, (string) $emp['Id'], $desde, $hasta),
         ];
     }
 
@@ -163,7 +163,7 @@ function reportes_sgi_asistencia(PDO $pdo, int $year, int $month, ?string $sedeI
         'year' => $year,
         'month' => $month,
         'daysInMonth' => (int) $hasta->format('j'),
-        'feriado' => reportes_sgi_feriados($pdo, $desde, $hasta),
+        'feriado' => (object) reportes_sgi_feriados($pdo, $desde, $hasta),
         'employees' => $items,
     ];
 }
@@ -253,17 +253,20 @@ function reportes_sgi_asistencia_detallada(PDO $pdo, int $year, int $month, ?str
     $desde = new DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
     $hasta = $desde->modify('last day of this month');
     $base = reportes_sgi_asistencia($pdo, $year, $month, $sedeId, $areaIds);
+    $feriadosBase = is_array($base['feriado'] ?? null) ? $base['feriado'] : (array) ($base['feriado'] ?? []);
     $hoy = new DateTimeImmutable('today');
 
     $employees = [];
     foreach ($base['employees'] as $emp) {
         $fichadasPorDia = reportes_sgi_fichadas_detalle($pdo, (string) $emp['legajo'], $desde, $hasta);
         $authPorDia = reportes_sgi_auth_detalle($pdo, (string) $emp['personalId'], $desde, $hasta);
+        $daysBase = is_array($emp['days'] ?? null) ? $emp['days'] : (array) ($emp['days'] ?? []);
+        $ausenciasBase = is_array($emp['razonAusencia'] ?? null) ? $emp['razonAusencia'] : (array) ($emp['razonAusencia'] ?? []);
         $detailDays = [];
 
         for ($day = 1; $day <= (int) $base['daysInMonth']; $day++) {
             $dia = $desde->setDate($year, $month, $day);
-            $dayBase = $emp['days'][$day] ?? null;
+            $dayBase = $daysBase[$day] ?? null;
             $dayInfo = [
                 'entradaCalculada' => $dayBase['in'] ?? '',
                 'salidaCalculada' => $dayBase['out'] ?? '',
@@ -319,13 +322,13 @@ function reportes_sgi_asistencia_detallada(PDO $pdo, int $year, int $month, ?str
                 $dayInfo['tieneFichadaManual'] = true;
             }
 
-            $ausencia = $emp['razonAusencia'][$day] ?? null;
+            $ausencia = $ausenciasBase[$day] ?? null;
             if (is_array($ausencia) && trim((string) ($ausencia['motivo'] ?? '')) !== '') {
                 $dayInfo['estadoCodigo'] = trim((string) ($ausencia['code'] ?? '')) !== '' ? (string) $ausencia['code'] : 'AUSENCIA';
                 $dayInfo['estadoDia'] = (string) $ausencia['motivo'];
-            } elseif ($dayInfo['entradaCalculada'] === '' && $dayInfo['salidaCalculada'] === '' && isset($base['feriado'][$day])) {
+            } elseif ($dayInfo['entradaCalculada'] === '' && $dayInfo['salidaCalculada'] === '' && isset($feriadosBase[$day])) {
                 $dayInfo['estadoCodigo'] = 'FERIADO';
-                $dayInfo['estadoDia'] = 'Feriado: ' . (string) $base['feriado'][$day];
+                $dayInfo['estadoDia'] = 'Feriado: ' . (string) $feriadosBase[$day];
             } elseif ($dayInfo['entradaCalculada'] === '' && $dayInfo['salidaCalculada'] === '' && $dia <= $hoy && !in_array((int) $dia->format('w'), [0, 6], true)) {
                 $fechaBaja = !empty($emp['fechaBaja']) ? new DateTimeImmutable((string) $emp['fechaBaja']) : null;
                 if ((int) $emp['estado'] === 1 || ((int) $emp['estado'] === 2 && $fechaBaja !== null && $dia < $fechaBaja)) {
@@ -347,7 +350,7 @@ function reportes_sgi_asistencia_detallada(PDO $pdo, int $year, int $month, ?str
             'legajo' => $emp['legajo'],
             'nombre' => $emp['nombre'],
             'sede' => $emp['sede'],
-            'days' => $detailDays,
+            'days' => (object) $detailDays,
         ];
     }
 
