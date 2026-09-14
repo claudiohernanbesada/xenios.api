@@ -121,15 +121,14 @@ function auth_salida_daily_report_text_body(array $rows): string
                 $row['regresoEfectivo'] !== '' ? $row['regresoEfectivo'] : 'No registrado'
             );
         }
-        $body .= "\n";
+        $body .= "\n\n";
     }
 
     return $body
-        . "\n\n"
         . "Que tengas muy buen día\n\n"
-        . "Cordialmente,\n\n"
-        . "<strong>El Equipo de Desarrollo SGI</strong>\n"
-        . "<strong>Metalúrgica RAEI S.A.</strong>";
+        . <strong>"Cordialmente,\n\n"</strong>
+        . <strong>"El Equipo de Desarrollo SGI\n"</strong>
+        . "Metalúrgica RAEI S.A.";
 }
 
 /** @param list<array<string, string>> $rows */
