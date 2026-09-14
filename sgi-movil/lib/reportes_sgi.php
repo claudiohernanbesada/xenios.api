@@ -101,7 +101,7 @@ function reportes_sgi_razones_ausencia(PDO $pdo, string $personalId, DateTimeImm
     $stmt = $pdo->prepare(
         'SELECT pl.Desde, pl.Hasta, COALESCE(m.Codigo, "") AS Codigo, COALESCE(m.Motivo, "") AS Motivo
          FROM PersonalLicencias pl
-         LEFT JOIN PersonalLicenciasMotivo m ON m.Id = pl.MotivoId
+         LEFT JOIN PersonalLicenciasMotivo m ON m.Id = pl.PersonalLicenciasMotivoId
          WHERE pl.Estado = 1 AND pl.PersonalId = :pid AND pl.Desde <= :h AND pl.Hasta >= :d'
     );
     $stmt->execute(['pid' => $personalId, 'd' => $desde->format('Y-m-d'), 'h' => $hasta->format('Y-m-d')]);
