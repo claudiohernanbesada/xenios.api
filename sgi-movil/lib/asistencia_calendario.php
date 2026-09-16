@@ -362,6 +362,22 @@ function asistencia_agrupar_fichadas_por_dia(
         $usaAuthSalida = false;
 
         $authSalida = $authPorFecha[$fechaKey] ?? null;
+        if ($authSalida !== null
+            && count($lista) === 1
+            && $entradaDt === null
+            && $salidaDt !== null
+            && !empty($authSalida['FechaHoraSalidaEfectiva'])
+            && empty($authSalida['FechaHoraRegresoEfectiva'])
+        ) {
+            $salidaEfectivaAuth = new DateTimeImmutable((string) $authSalida['FechaHoraSalidaEfectiva']);
+            if ($lista[0]['Fecha'] < $salidaEfectivaAuth) {
+                $entradaDt = $lista[0]['Fecha'];
+                $salidaDt = null;
+                $clasificacion['EsManualEntrada'] = (bool) $lista[0]['EsCargaManual'];
+                $clasificacion['EsManualSalida'] = false;
+            }
+        }
+
         $hayFichadasPosterioresAuth = false;
         if ($authSalida !== null && $entradaDt !== null) {
             $limitePosterior = asistencia_referencia_limite_posterior_auth(
