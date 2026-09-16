@@ -23,7 +23,7 @@ function auth_salida_list_for_personal(PDO $pdo, array $personal): array
 
     $stmt = $pdo->prepare(
         'SELECT a.Id, a.Fecha, a.HoraSalida, a.HoraRegreso,
-                a.FechaHoraSalidaEfectiva, a.FechaHoraRegresoEfectiva,
+                a.FechaRegreso, a.FechaHoraSalidaEfectiva, a.FechaHoraRegresoEfectiva,
                 m.MotivoAuth, a.MotivoDetalle, a.AuthFile
          FROM AuthSalida a
          INNER JOIN AuthSalidaMotivos m ON m.Id = a.MotivoId
@@ -35,7 +35,7 @@ function auth_salida_list_for_personal(PDO $pdo, array $personal): array
 
     $lista = [];
     foreach ($rows as $row) {
-        $lista[] = auth_salida_format_list_item($row, $turnos, $areaNombre);
+        $lista[] = auth_salida_format_list_item($row, $turnos, $areaNombre, $personal);
     }
 
     return $lista;
@@ -45,7 +45,7 @@ function auth_salida_list_for_personal(PDO $pdo, array $personal): array
  * @param array<string, mixed> $row
  * @return array<string, mixed>
  */
-function auth_salida_format_list_item(array $row, array $turnos, string $areaNombre): array
+function auth_salida_format_list_item(array $row, array $turnos, string $areaNombre, array $personal): array
 {
     $fechaRaw = (string) $row['Fecha'];
     $fechaFmt = $fechaRaw;
@@ -58,7 +58,7 @@ function auth_salida_format_list_item(array $row, array $turnos, string $areaNom
     $tiene = $authFile !== null && $authFile !== '';
 
     $salidaEfectiva = auth_salida_format_datetime_hora($row['FechaHoraSalidaEfectiva'] ?? null);
-    $regreso = auth_salida_resolve_regreso_efectiva($row, $turnos, $areaNombre);
+    $regreso = auth_salida_resolve_regreso_efectiva($row, $turnos, $areaNombre, $personal);
 
     return [
         'id' => (string) $row['Id'],
@@ -96,7 +96,7 @@ function auth_salida_format_datetime_hora(?string $value): ?string
  * @param array<string, mixed> $row
  * @return array{hora: ?string, finTurno: bool}
  */
-function auth_salida_resolve_regreso_efectiva(array $row, array $turnos, string $areaNombre): array
+function auth_salida_resolve_regreso_efectiva(array $row, array $turnos, string $areaNombre, array $personal): array
 {
     $regresoEfectivo = auth_salida_format_datetime_hora($row['FechaHoraRegresoEfectiva'] ?? null);
     if ($regresoEfectivo !== null) {
@@ -114,40 +114,53 @@ function auth_salida_resolve_regreso_efectiva(array $row, array $turnos, string 
         return ['hora' => null, 'finTurno' => false];
     }
 
-    if (!empty($row['FechaHoraSalidaEfectiva'])) {
-        $salidaDt = new DateTimeImmutable((string) $row['FechaHoraSalidaEfectiva']);
-        $salidaSec = (int) $salidaDt->format('H') * 3600 + (int) $salidaDt->format('i') * 60;
-    } else {
-        $salidaSec = ht_time_to_seconds(substr((string) $row['HoraSalida'], 0, 8));
+    try {
+        $salidaAutorizada = !empty($row['FechaHoraSalidaEfectiva'])
+            ? new DateTimeImmutable((string) $row['FechaHoraSalidaEfectiva'])
+            : auth_salida_datetime_from_date_time($fecha, (string) $row['HoraSalida']);
+
+        $fechaRegresoRaw = (string) ($row['FechaRegreso'] ?? $row['Fecha']);
+        $fechaRegreso = DateTimeImmutable::createFromFormat('Y-m-d', $fechaRegresoRaw) ?: $fecha;
+        $regresoInformado = auth_salida_datetime_from_date_time($fechaRegreso, (string) $row['HoraRegreso']);
+        if ($regresoInformado <= $salidaAutorizada) {
+            $regresoInformado = $regresoInformado->modify('+1 day');
+        }
+    } catch (Exception) {
+        return ['hora' => null, 'finTurno' => false];
     }
 
-    $regresoSec = ht_time_to_seconds(substr((string) $row['HoraRegreso'], 0, 8));
-    $finTurnoSec = ht_obtener_regreso_por_fin_de_turno(
+    $finTurno = ht_obtener_regreso_por_fin_de_turno(
         $turnos,
         $fecha,
-        $salidaSec,
-        $regresoSec,
-        $areaNombre
+        $salidaAutorizada,
+        $regresoInformado,
+        $areaNombre,
+        is_string($personal['HorarioIngreso'] ?? null) ? $personal['HorarioIngreso'] : null,
+        is_string($personal['HorarioSalida'] ?? null) ? $personal['HorarioSalida'] : null
     );
 
     if ($fecha < $hoy) {
-        $hora = auth_salida_seconds_to_hora($finTurnoSec);
-        return ['hora' => $hora, 'finTurno' => true];
+        return ['hora' => $finTurno->format('H:i'), 'finTurno' => true];
     }
 
     $ahora = new DateTimeImmutable('now');
-    $finTurnoDt = $fecha->setTime(
-        intdiv($finTurnoSec, 3600),
-        intdiv($finTurnoSec % 3600, 60)
-    );
-    if ($ahora >= $finTurnoDt) {
-        return ['hora' => auth_salida_seconds_to_hora($finTurnoSec), 'finTurno' => true];
+    if ($ahora >= $finTurno) {
+        return ['hora' => $finTurno->format('H:i'), 'finTurno' => true];
     }
 
     return ['hora' => null, 'finTurno' => false];
 }
 
-function auth_salida_seconds_to_hora(int $seconds): string
+function auth_salida_datetime_from_date_time(DateTimeImmutable $fecha, string $hora): DateTimeImmutable
 {
-    return sprintf('%02d:%02d', intdiv($seconds, 3600), intdiv($seconds % 3600, 60));
+    $hora = substr($hora, 0, 8);
+    if (!preg_match('/^\d{1,2}:\d{2}(:\d{2})?$/', $hora)) {
+        throw new InvalidArgumentException('Hora invalida');
+    }
+
+    return $fecha->setTime(
+        (int) substr($hora, 0, 2),
+        (int) substr($hora, 3, 2),
+        strlen($hora) >= 8 ? (int) substr($hora, 6, 2) : 0
+    );
 }
