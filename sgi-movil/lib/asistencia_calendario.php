@@ -11,8 +11,8 @@ require_once __DIR__ . '/auth.php';
  */
 function asistencia_build_calendario(PDO $pdo, array $personal, string $desde, string $hasta): array
 {
-    $desdeDt = DateTimeImmutable::createFromFormat('Y-m-d', $desde);
-    $hastaDt = DateTimeImmutable::createFromFormat('Y-m-d', $hasta);
+    $desdeDt = DateTimeImmutable::createFromFormat('!Y-m-d', $desde);
+    $hastaDt = DateTimeImmutable::createFromFormat('!Y-m-d', $hasta);
     if ($desdeDt === false || $hastaDt === false || $desdeDt > $hastaDt) {
         return [];
     }
@@ -284,8 +284,8 @@ function asistencia_cargar_licencias_por_dia(
         'hasta' => $hasta->format('Y-m-d'),
     ]);
     $porDia = [];
-    $desdeOnly = DateTimeImmutable::createFromFormat('Y-m-d', $desde->format('Y-m-d'));
-    $hastaOnly = DateTimeImmutable::createFromFormat('Y-m-d', $hasta->format('Y-m-d'));
+    $desdeOnly = DateTimeImmutable::createFromFormat('!Y-m-d', $desde->format('Y-m-d'));
+    $hastaOnly = DateTimeImmutable::createFromFormat('!Y-m-d', $hasta->format('Y-m-d'));
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $from = max(
             new DateTimeImmutable((string) $row['Desde']),
