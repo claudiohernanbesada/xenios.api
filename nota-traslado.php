@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require_once dirname(__DIR__) . '/_inc/api_tokens.php';
+require_once __DIR__ . '/_inc/api_tokens.php';
 
 header('X-Content-Type-Options: nosniff');
 
@@ -13,7 +13,11 @@ if (!sgi_validar_api_token()) {
     json_response(false, 'Token invalido.', 401);
 }
 
-$baseDir = __DIR__;
+$baseDir = __DIR__ . DIRECTORY_SEPARATOR . '_NOTA-TRASLADO';
+
+if (!is_dir($baseDir) && !mkdir($baseDir, 0755, true)) {
+    json_response(false, 'No se pudo preparar el directorio de documentos.', 500);
+}
 
 if (isset($_FILES['archivo'])) {
     upload_documento($baseDir);
