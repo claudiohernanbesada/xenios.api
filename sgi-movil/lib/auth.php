@@ -368,6 +368,14 @@ function require_auth(PDO $pdo, array $config): array
     $path = current_api_path($config);
     enforce_method_for_roles($roles, $method, $path, $config);
 
+    $stmtActivity = $pdo->prepare(
+        'UPDATE Usuarios SET LastLogin = NOW(), Plataforma = :plataforma WHERE Id = :id'
+    );
+    $stmtActivity->execute([
+        'id' => $userId,
+        'plataforma' => 'mobil',
+    ]);
+
     return [
         'token_payload' => $payload,
         'user' => $user,
