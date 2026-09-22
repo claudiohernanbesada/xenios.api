@@ -403,8 +403,8 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
             $datos['vacaciones'],
             $datos['ausenciasResta']
         );
-        $minutosFeriados = $minutosFeriadosTrabajados;
     }
+    $minutosFeriados = $minutosFeriadosTrabajados;
 
     $minutosTrab = ht_sumar_minutos_nominales(
         $diasTrabajo,
