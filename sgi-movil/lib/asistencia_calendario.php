@@ -367,7 +367,6 @@ function asistencia_agrupar_fichadas_por_dia(
             && $entradaDt === null
             && $salidaDt !== null
             && !empty($authSalida['FechaHoraSalidaEfectiva'])
-            && empty($authSalida['FechaHoraRegresoEfectiva'])
         ) {
             $salidaEfectivaAuth = new DateTimeImmutable((string) $authSalida['FechaHoraSalidaEfectiva']);
             if ($lista[0]['Fecha'] < $salidaEfectivaAuth) {
@@ -395,15 +394,13 @@ function asistencia_agrupar_fichadas_por_dia(
             }
         }
 
-        $tieneSalidaEfectivaSinRegreso = $authSalida !== null
+        $tieneSalidaEfectivaAuth = $authSalida !== null
             && $entradaDt !== null
-            && !empty($authSalida['FechaHoraSalidaEfectiva'])
-            && empty($authSalida['FechaHoraRegresoEfectiva']);
+            && !empty($authSalida['FechaHoraSalidaEfectiva']);
 
-        if ($tieneSalidaEfectivaSinRegreso && !$hayFichadasPosterioresAuth) {
+        if ($tieneSalidaEfectivaAuth && !$hayFichadasPosterioresAuth) {
             if (!empty($authSalida['FechaHoraRegresoEfectiva'])) {
-                $reg = new DateTimeImmutable((string) $authSalida['FechaHoraRegresoEfectiva']);
-                $horarioRegreso = $reg->format('H:i:s');
+                $salidaDt = new DateTimeImmutable((string) $authSalida['FechaHoraRegresoEfectiva']);
             } else {
                 $horarioRegreso = asistencia_get_turno_salida(
                     $turnos,
@@ -411,11 +408,11 @@ function asistencia_agrupar_fichadas_por_dia(
                     $personalId,
                     $areasDict
                 );
+                $salidaDt = DateTimeImmutable::createFromFormat(
+                    'Y-m-d H:i:s',
+                    $entradaDt->format('Y-m-d') . ' ' . substr($horarioRegreso, 0, 8)
+                ) ?: $entradaDt;
             }
-            $salidaDt = DateTimeImmutable::createFromFormat(
-                'Y-m-d H:i:s',
-                $entradaDt->format('Y-m-d') . ' ' . substr($horarioRegreso, 0, 8)
-            ) ?: $entradaDt;
             $usaAuthSalida = true;
         }
 
