@@ -309,20 +309,20 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
     );
 
     $fichadasEmp = $datos['fichadas'];
-    $minutosFeriadosHabiles = $esQuincenal
-        ? ht_minutos_feriados_habiles_quincenal(
+    $minutosFeriados = 0;
+
+    if ($esQuincenal) {
+        ht_agregar_feriados_habiles_no_trabajados_quincenal(
+            $diasTrabajo,
             $datos['feriados'],
             $periodo['desde'],
             $periodo['hasta'],
             $personalId,
-            $diasTrabajo,
             $datos['licenciasCgs'],
             $datos['vacaciones'],
-            $datos['ausenciasResta'],
-            $areaNombre,
-            (int) ($datos['config']['jornada_vigilancia_horas'] ?? 12)
-        )
-        : 0;
+            $datos['ausenciasResta']
+        );
+    }
 
     if ($fichadasEmp === []) {
         $minutosTrab = ht_sumar_minutos_nominales(
@@ -359,7 +359,7 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
             0,
             $licenciaCgs['dias'],
             $licenciaCgs['minutos'],
-            $minutosFeriadosHabiles,
+            $minutosFeriados,
             $diasVacaciones,
             $licenciaSgs['dias'],
             false
@@ -381,7 +381,7 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
         return horas_trabajadas_armar_respuesta($empleado, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, true);
     }
 
-    [$e50, $e100, $comp] = horas_trabajadas_calcular_extras(
+    [$e50, $e100, $comp, $minutosFeriadosTrabajados] = horas_trabajadas_calcular_extras(
         $periodo,
         $datos,
         $empleado,
@@ -391,20 +391,20 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
         $horasExtrasFlag,
         $areaNombre
     );
-    $minutosFeriadosHabiles = $esQuincenal
-        ? ht_minutos_feriados_habiles_quincenal(
+
+    if ($esQuincenal) {
+        ht_agregar_feriados_habiles_no_trabajados_quincenal(
+            $diasTrabajo,
             $datos['feriados'],
             $periodo['desde'],
             $periodo['hasta'],
             $personalId,
-            $diasTrabajo,
             $datos['licenciasCgs'],
             $datos['vacaciones'],
-            $datos['ausenciasResta'],
-            $areaNombre,
-            (int) ($datos['config']['jornada_vigilancia_horas'] ?? 12)
-        )
-        : 0;
+            $datos['ausenciasResta']
+        );
+        $minutosFeriados = $minutosFeriadosTrabajados;
+    }
 
     $minutosTrab = ht_sumar_minutos_nominales(
         $diasTrabajo,
@@ -430,7 +430,7 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
         (int) $e100,
         $licenciaCgs['dias'],
         $licenciaCgs['minutos'],
-        $minutosFeriadosHabiles,
+        $minutosFeriados,
         $diasVacaciones,
         $licenciaSgs['dias'],
         false
@@ -568,6 +568,7 @@ function horas_trabajadas_calcular_extras(
     $e50 = 0.0;
     $e100 = 0.0;
     $compensable = 0.0;
+    $feriadosTrabajados = 0.0;
     ht_acumular_extras_manuales($personalId, $datos['extrasManuales'], $e50, $e100);
 
     $porDia = [];
@@ -598,6 +599,7 @@ function horas_trabajadas_calcular_extras(
             $e50,
             $e100,
             $compensable,
+            $feriadosTrabajados,
             $inicioAuthPosterior !== null,
             $horasExtrasFlag
         );
@@ -633,7 +635,7 @@ function horas_trabajadas_calcular_extras(
         }
     }
 
-    return [$e50, $e100, $comp];
+    return [$e50, $e100, $comp, (int) $feriadosTrabajados];
 }
 
 function ht_procesar_grupo_dia_fichadas(
@@ -649,6 +651,7 @@ function ht_procesar_grupo_dia_fichadas(
     float &$e50,
     float &$e100,
     float &$compensable,
+    float &$feriadosTrabajados,
     bool $tieneAuthPosterior,
     bool $calcularHorasExtras
 ): void {
@@ -673,9 +676,11 @@ function ht_procesar_grupo_dia_fichadas(
     $esFeriado = isset($datos['feriados'][$fechaKey]);
     $esQuincenal = ht_es_quincenal((string) ($empleado['TipoContratacionNombre'] ?? ''));
     if ($esFeriado && $esQuincenal) {
+        $minutosFeriadoTrabajado = ht_redondear_bloque(ht_minutos_sin_segundos($entrada, $salida), $bloqueMinutos);
         $diasTrabajo[$fechaKey] = 'feriado_trabajado';
+        $feriadosTrabajados += $minutosFeriadoTrabajado;
         if ($calcularHorasExtras) {
-            $e100 += ht_redondear_bloque(ht_minutos_sin_segundos($entrada, $salida), $bloqueMinutos);
+            $e100 += $minutosFeriadoTrabajado;
         }
         return;
     }
@@ -1133,6 +1138,36 @@ function ht_quitar_feriados_habiles_cubiertos_por_licencia(
         if (ht_dia_excluido_por_licencia_formal($personalId, $fechaStr, $licenciasCgs, $vacaciones, $ausenciasResta)) {
             unset($diasTrabajo[$fechaStr]);
         }
+    }
+}
+
+function ht_agregar_feriados_habiles_no_trabajados_quincenal(
+    array &$diasTrabajo,
+    array $feriados,
+    DateTimeImmutable $desde,
+    DateTimeImmutable $hasta,
+    string $personalId,
+    array $licenciasCgs,
+    array $vacaciones,
+    array $ausenciasResta
+): void {
+    foreach (array_keys($feriados) as $fechaStr) {
+        $f = new DateTimeImmutable($fechaStr);
+        if ($f < $desde || $f > $hasta) {
+            continue;
+        }
+        $dow = (int) $f->format('w');
+        if ($dow === 0 || $dow === 6) {
+            continue;
+        }
+        if (isset($diasTrabajo[$fechaStr])) {
+            continue;
+        }
+        if (ht_dia_excluido_por_licencia_formal($personalId, $fechaStr, $licenciasCgs, $vacaciones, $ausenciasResta)) {
+            continue;
+        }
+
+        $diasTrabajo[$fechaStr] = 'feriado_no_trabajado';
     }
 }
 
