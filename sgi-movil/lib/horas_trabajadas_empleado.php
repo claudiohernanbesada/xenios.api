@@ -463,7 +463,6 @@ function horas_trabajadas_armar_respuesta(
     $horasTrab = intdiv($minutosHorasTrab, 60);
     $restoTrab = $minutosHorasTrab % 60;
     $horasFeriados = intdiv($minutosFeriados, 60);
-    $restoFeriados = $minutosFeriados % 60;
     $horasTotal = intdiv($minutosTotalAPagar, 60);
     $restoTotal = $minutosTotalAPagar % 60;
 
@@ -478,7 +477,7 @@ function horas_trabajadas_armar_respuesta(
         'diasTrabajados' => $diasTrabajados,
         'authSalidaFormateada' => intdiv($minutosAuthSalida, 60) . ' hs.',
         'authSalidaCompensadaFormateada' => intdiv($minutosAuthCompensada, 60) . ' hs.',
-        'horasFeriadosFormateadas' => sprintf('%02d:%02d', $horasFeriados, $restoFeriados),
+        'horasFeriadosFormateadas' => $horasFeriados . ' hs.',
         'diasLicencia' => $diasLicencia,
         'diasAusenciaResta' => $diasAusenciaResta,
         'diasVacacionesConsumidas' => $diasVacacionesConsumidas,
