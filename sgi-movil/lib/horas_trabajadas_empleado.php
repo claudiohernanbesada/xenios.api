@@ -670,6 +670,16 @@ function ht_procesar_grupo_dia_fichadas(
     }
 
     $dow = (int) $dia->format('w');
+    $esFeriado = isset($datos['feriados'][$fechaKey]);
+    $esQuincenal = ht_es_quincenal((string) ($empleado['TipoContratacionNombre'] ?? ''));
+    if ($esFeriado && $esQuincenal) {
+        $diasTrabajo[$fechaKey] = 'feriado_trabajado';
+        if ($calcularHorasExtras) {
+            $e100 += ht_redondear_bloque(ht_minutos_sin_segundos($entrada, $salida), $bloqueMinutos);
+        }
+        return;
+    }
+
     if ($dow === 0 || $dow === 6) {
         ht_acumular_tiempo_compensable($entrada, $salida, $compensable, $bloqueMinutos);
         ht_acumular_extras_segun_franja($entrada, $salida, $e50, $e100, $bloqueMinutos);
@@ -1015,7 +1025,10 @@ function ht_sumar_minutos_nominales(
     int $jornadaVigilanciaHoras = 12
 ): int {
     $m = 0;
-    foreach (array_keys($diasTrabajo) as $fechaStr) {
+    foreach ($diasTrabajo as $fechaStr => $tipoDia) {
+        if ($tipoDia === 'feriado_trabajado') {
+            continue;
+        }
         $d = new DateTimeImmutable($fechaStr);
         $m += ht_minutos_horas_trabajadas_dia_laboral($d, $feriados, $areaNombre, $jornadaVigilanciaHoras);
     }
