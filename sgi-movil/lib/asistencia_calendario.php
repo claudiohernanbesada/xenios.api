@@ -21,6 +21,8 @@ function asistencia_build_calendario(PDO $pdo, array $personal, string $desde, s
     $legajo = (int) ($personal['Legajo'] ?? 0);
     $estadoEmpleado = (int) ($personal['Estado'] ?? 1);
     $areaNombre = (string) ($personal['AreaNombre'] ?? $personal['areaNombre'] ?? $personal['Area'] ?? '');
+    $horarioIngreso = asistencia_normalizar_hora($personal['HorarioIngreso'] ?? $personal['horarioIngreso'] ?? null);
+    $horarioSalida = asistencia_normalizar_hora($personal['HorarioSalida'] ?? $personal['horarioSalida'] ?? null);
     $fechaBaja = asistencia_parse_fecha_baja($personal['FechaBaja'] ?? null);
 
     $hoy = new DateTimeImmutable('today');
@@ -28,9 +30,18 @@ function asistencia_build_calendario(PDO $pdo, array $personal, string $desde, s
     if ($finConsulta > $hoy->setTime(23, 59, 59)) {
         $finConsulta = $hoy->setTime(23, 59, 59);
     }
+    $inicioConsulta = asistencia_es_horario_nocturno($horarioIngreso, $horarioSalida)
+        ? $desdeDt->modify('-1 day')
+        : $desdeDt;
+    $finConsultaFichadas = asistencia_es_horario_nocturno($horarioIngreso, $horarioSalida)
+        ? $finConsulta->modify('+1 day')
+        : $finConsulta;
+    if ($finConsultaFichadas > $hoy->setTime(23, 59, 59)) {
+        $finConsultaFichadas = $hoy->setTime(23, 59, 59);
+    }
 
     $turnos = asistencia_cargar_turnos($pdo);
-    $fichadas = asistencia_cargar_fichadas($pdo, $legajo, $desdeDt, $finConsulta);
+    $fichadas = asistencia_cargar_fichadas($pdo, $legajo, $inicioConsulta, $finConsultaFichadas);
     $authPorFecha = asistencia_cargar_auth_salida($pdo, $personalId, $desdeDt, $hastaDt);
     $licenciasPorDia = asistencia_cargar_licencias_por_dia($pdo, $personalId, $desdeDt, $hastaDt);
     $feriados = asistencia_cargar_feriados($pdo, $desdeDt, $hastaDt);
@@ -41,7 +52,9 @@ function asistencia_build_calendario(PDO $pdo, array $personal, string $desde, s
         $turnos,
         $personalId,
         $areasDict,
-        $authPorFecha
+        $authPorFecha,
+        $horarioIngreso,
+        $horarioSalida
     );
 
     $resultado = [];
@@ -340,11 +353,13 @@ function asistencia_agrupar_fichadas_por_dia(
     array $turnos,
     string $personalId,
     array $areasDict,
-    array $authPorFecha
+    array $authPorFecha,
+    ?string $horarioIngreso = null,
+    ?string $horarioSalida = null
 ): array {
     $porDia = [];
     foreach ($fichadas as $f) {
-        $fechaKey = $f['Fecha']->format('Y-m-d');
+        $fechaKey = asistencia_obtener_fecha_laboral_fichada($f['Fecha'], $horarioIngreso, $horarioSalida);
         $porDia[$fechaKey][] = $f;
     }
 
@@ -662,6 +677,47 @@ function asistencia_time_to_minutes(string $time): float
 {
     $parts = explode(':', substr($time, 0, 8));
     return ((int) ($parts[0] ?? 0)) * 60 + ((int) ($parts[1] ?? 0));
+}
+
+function asistencia_normalizar_hora(mixed $time): ?string
+{
+    if ($time === null || $time === '') {
+        return null;
+    }
+    $value = substr((string) $time, 0, 8);
+    if (preg_match('/^\d{2}:\d{2}:\d{2}$/', $value)) {
+        return $value;
+    }
+    $value = substr((string) $time, 0, 5);
+    return preg_match('/^\d{2}:\d{2}$/', $value) ? $value . ':00' : null;
+}
+
+function asistencia_es_horario_nocturno(?string $horarioIngreso, ?string $horarioSalida): bool
+{
+    if ($horarioIngreso === null || $horarioSalida === null) {
+        return false;
+    }
+    return asistencia_time_to_minutes($horarioSalida) <= asistencia_time_to_minutes($horarioIngreso);
+}
+
+function asistencia_obtener_fecha_laboral_fichada(
+    DateTimeImmutable $fichada,
+    ?string $horarioIngreso,
+    ?string $horarioSalida
+): string {
+    if (!asistencia_es_horario_nocturno($horarioIngreso, $horarioSalida)) {
+        return $fichada->format('Y-m-d');
+    }
+
+    $hora = asistencia_time_to_minutes($fichada->format('H:i:s'));
+    $salida = asistencia_time_to_minutes((string) $horarioSalida);
+    $limiteSalidaMadrugada = min($salida + 240, asistencia_time_to_minutes((string) $horarioIngreso));
+
+    if ($hora <= $limiteSalidaMadrugada) {
+        return $fichada->modify('-1 day')->format('Y-m-d');
+    }
+
+    return $fichada->format('Y-m-d');
 }
 
 function asistencia_parse_fecha_baja(mixed $raw): ?DateTimeImmutable
