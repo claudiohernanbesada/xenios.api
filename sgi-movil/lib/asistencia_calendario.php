@@ -370,7 +370,14 @@ function asistencia_agrupar_fichadas_por_dia(
             static fn ($x) => ['Fecha' => $x['Fecha'], 'EsCargaManual' => $x['EsCargaManual']],
             $lista
         );
-        $clasificacion = asistencia_clasificar_fichadas_por_turno($pares, $turnos, $personalId, $areasDict);
+        $clasificacion = asistencia_clasificar_fichadas_por_turno(
+            $pares,
+            $turnos,
+            $personalId,
+            $areasDict,
+            $horarioIngreso,
+            $horarioSalida
+        );
 
         $entradaDt = $clasificacion['Entrada'];
         $salidaDt = $clasificacion['Salida'];
@@ -501,7 +508,9 @@ function asistencia_clasificar_fichadas_por_turno(
     array $fichadas,
     array $turnos,
     string $personaId,
-    array $areasDict
+    array $areasDict,
+    ?string $horarioIngreso = null,
+    ?string $horarioSalida = null
 ): array {
     usort($fichadas, static fn ($a, $b) => $a['Fecha'] <=> $b['Fecha']);
     if ($fichadas === []) {
@@ -529,7 +538,14 @@ function asistencia_clasificar_fichadas_por_turno(
     $entradas = [];
     $salidas = [];
     foreach ($fichadas as $fichada) {
-        if (asistencia_es_fichada_mas_cercana_a_salida($fichada['Fecha'], $turnos, $personaId, $areasDict)) {
+        if (asistencia_es_fichada_mas_cercana_a_salida(
+            $fichada['Fecha'],
+            $turnos,
+            $personaId,
+            $areasDict,
+            $horarioIngreso,
+            $horarioSalida
+        )) {
             $salidas[] = $fichada;
         } else {
             $entradas[] = $fichada;
@@ -551,7 +567,9 @@ function asistencia_es_fichada_mas_cercana_a_salida(
     DateTimeImmutable $fichada,
     array $turnos,
     string $personaId,
-    array $areasDict
+    array $areasDict,
+    ?string $horarioIngreso = null,
+    ?string $horarioSalida = null
 ): bool {
     if ((int) $fichada->format('w') === 6) {
         $hora = asistencia_time_to_minutes($fichada->format('H:i:s'));
@@ -600,6 +618,16 @@ function asistencia_es_fichada_mas_cercana_a_salida(
     }
     if ($menorEntrada < $menorSalida) {
         return false;
+    }
+    if ($horarioIngreso !== null && $horarioSalida !== null) {
+        $distEntradaEmpleado = abs(asistencia_time_to_minutes($horarioIngreso) - $hora);
+        $distSalidaEmpleado = abs(asistencia_time_to_minutes($horarioSalida) - $hora);
+        if ($distSalidaEmpleado < $distEntradaEmpleado) {
+            return true;
+        }
+        if ($distEntradaEmpleado < $distSalidaEmpleado) {
+            return false;
+        }
     }
     if ($entradaMasCercana !== null && $salidaMasCercana !== null && $entradaMasCercana === $salidaMasCercana) {
         return $hora >= asistencia_time_to_minutes($salidaMasCercana);
