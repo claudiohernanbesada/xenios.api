@@ -673,14 +673,11 @@ function ht_procesar_grupo_dia_fichadas(
 
     $dow = (int) $dia->format('w');
     $esFeriado = isset($datos['feriados'][$fechaKey]);
-    $esQuincenal = ht_es_quincenal((string) ($empleado['TipoContratacionNombre'] ?? ''));
-    if ($esFeriado && $esQuincenal) {
+    if ($esFeriado) {
         $minutosFeriadoTrabajado = ht_redondear_bloque(ht_minutos_sin_segundos($entrada, $salida), $bloqueMinutos);
         $diasTrabajo[$fechaKey] = 'feriado_trabajado';
         $feriadosTrabajados += $minutosFeriadoTrabajado;
-        if ($calcularHorasExtras) {
-            $e100 += $minutosFeriadoTrabajado;
-        }
+        $e100 += $minutosFeriadoTrabajado;
         return;
     }
 
