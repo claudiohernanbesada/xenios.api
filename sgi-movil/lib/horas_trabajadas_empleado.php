@@ -458,7 +458,7 @@ function horas_trabajadas_armar_respuesta(
 ): array {
     $minutosAuthSalida = ht_redondear_auth_minutos($minutosAuthSalida);
     $minutosAuthCompensada = ht_redondear_auth_minutos($minutosAuthCompensada);
-    $minutosTotalAPagar = $minutosHorasTrab - $minutosAuthSalida + $minutosAuthCompensada + $minutosFeriados + $minutosLicenciaConGoce;
+    $minutosTotalAPagar = $minutosHorasTrab - $minutosAuthSalida + $minutosAuthCompensada + $minutosLicenciaConGoce;
 
     $horasTrab = intdiv($minutosHorasTrab, 60);
     $restoTrab = $minutosHorasTrab % 60;
@@ -675,7 +675,9 @@ function ht_procesar_grupo_dia_fichadas(
     $esFeriado = isset($datos['feriados'][$fechaKey]);
     if ($esFeriado) {
         $minutosFeriadoTrabajado = ht_redondear_bloque(ht_minutos_sin_segundos($entrada, $salida), $bloqueMinutos);
-        $diasTrabajo[$fechaKey] = 'feriado_trabajado';
+        if (ht_es_quincenal((string) ($empleado['TipoContratacionNombre'] ?? ''))) {
+            $diasTrabajo[$fechaKey] = 'feriado_quincenal_trabajado';
+        }
         $feriadosTrabajados += $minutosFeriadoTrabajado;
         $e100 += $minutosFeriadoTrabajado;
         return;
