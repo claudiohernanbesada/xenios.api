@@ -309,7 +309,6 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
     );
 
     $fichadasEmp = $datos['fichadas'];
-    $minutosFeriados = 0;
 
     if ($esQuincenal) {
         ht_agregar_feriados_habiles_no_trabajados_quincenal(
@@ -323,6 +322,12 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
             $datos['ausenciasResta']
         );
     }
+    $minutosFeriados = ht_sumar_minutos_feriados_no_trabajados(
+        $diasTrabajo,
+        $datos['feriados'],
+        $areaNombre,
+        (int) ($datos['config']['jornada_vigilancia_horas'] ?? 12)
+    );
 
     if ($fichadasEmp === []) {
         $minutosTrab = ht_sumar_minutos_nominales(
@@ -381,7 +386,7 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
         return horas_trabajadas_armar_respuesta($empleado, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, true);
     }
 
-    [$e50, $e100, $comp, $minutosFeriadosTrabajados] = horas_trabajadas_calcular_extras(
+    [$e50, $e100, $comp] = horas_trabajadas_calcular_extras(
         $periodo,
         $datos,
         $empleado,
@@ -404,7 +409,12 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
             $datos['ausenciasResta']
         );
     }
-    $minutosFeriados = $minutosFeriadosTrabajados;
+    $minutosFeriados = ht_sumar_minutos_feriados_no_trabajados(
+        $diasTrabajo,
+        $datos['feriados'],
+        $areaNombre,
+        (int) ($datos['config']['jornada_vigilancia_horas'] ?? 12)
+    );
 
     $minutosTrab = ht_sumar_minutos_nominales(
         $diasTrabajo,
@@ -1034,6 +1044,27 @@ function ht_sumar_minutos_nominales(
         }
         $d = new DateTimeImmutable($fechaStr);
         $m += ht_minutos_horas_trabajadas_dia_laboral($d, $feriados, $areaNombre, $jornadaVigilanciaHoras);
+    }
+    return $m;
+}
+
+function ht_sumar_minutos_feriados_no_trabajados(
+    array $diasTrabajo,
+    array $feriados,
+    ?string $areaNombre = null,
+    int $jornadaVigilanciaHoras = 12
+): int {
+    $m = 0;
+    foreach ($diasTrabajo as $fechaStr => $tipoDia) {
+        if ($tipoDia !== 'feriado_no_trabajado') {
+            continue;
+        }
+        $m += ht_minutos_horas_trabajadas_dia_laboral(
+            new DateTimeImmutable((string) $fechaStr),
+            $feriados,
+            $areaNombre,
+            $jornadaVigilanciaHoras
+        );
     }
     return $m;
 }
