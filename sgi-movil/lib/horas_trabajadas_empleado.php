@@ -581,9 +581,16 @@ function horas_trabajadas_calcular_extras(
     $feriadosTrabajados = 0.0;
     ht_acumular_extras_manuales($personalId, $datos['extrasManuales'], $e50, $e100);
 
+    $desdeStr = $periodo['desde']->format('Y-m-d');
+    $hastaStr = $periodo['hasta']->format('Y-m-d');
+    $horarioIngresoNorm = ht_parse_horario_empleado(is_string($empleado['HorarioIngreso'] ?? null) ? $empleado['HorarioIngreso'] : null);
+    $horarioSalidaNorm = ht_parse_horario_empleado(is_string($empleado['HorarioSalida'] ?? null) ? $empleado['HorarioSalida'] : null);
     $porDia = [];
     foreach ($fichadasEmp as $f) {
-        $key = $f['Fecha']->format('Y-m-d');
+        $key = ht_obtener_fecha_laboral_fichada($f['Fecha'], $horarioIngresoNorm, $horarioSalidaNorm);
+        if ($key < $desdeStr || $key > $hastaStr) {
+            continue;
+        }
         $porDia[$key][] = $f;
     }
 
