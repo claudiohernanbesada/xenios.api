@@ -939,9 +939,11 @@ function ht_tiene_fichada_incompleta(
     }
 
     $hoyStr = $hoy->format('Y-m-d');
+    $horarioIngresoNorm = ht_parse_horario_empleado(is_string($horarioIngreso) ? $horarioIngreso : null);
+    $horarioSalidaNorm = ht_parse_horario_empleado(is_string($horarioSalida) ? $horarioSalida : null);
     $porDia = [];
     foreach ($fichadasEmp as $f) {
-        $key = $f['Fecha']->format('Y-m-d');
+        $key = ht_obtener_fecha_laboral_fichada($f['Fecha'], $horarioIngresoNorm, $horarioSalidaNorm);
         $porDia[$key][] = $f;
     }
 
@@ -1597,6 +1599,35 @@ function ht_es_mensual_o_quincenal(string $nombre): bool
 function ht_es_quincenal(string $nombre): bool
 {
     return strcasecmp(trim($nombre), 'Quincenal') === 0;
+}
+
+function ht_es_horario_nocturno(?string $horarioIngreso, ?string $horarioSalida): bool
+{
+    if ($horarioIngreso === null || $horarioSalida === null) {
+        return false;
+    }
+    return ht_time_to_seconds($horarioSalida) <= ht_time_to_seconds($horarioIngreso);
+}
+
+function ht_obtener_fecha_laboral_fichada(
+    DateTimeImmutable $fichada,
+    ?string $horarioIngreso,
+    ?string $horarioSalida
+): string {
+    if (!ht_es_horario_nocturno($horarioIngreso, $horarioSalida)) {
+        return $fichada->format('Y-m-d');
+    }
+
+    $hora = ht_time_to_seconds($fichada->format('H:i:s'));
+    $salida = ht_time_to_seconds((string) $horarioSalida);
+    $ingreso = ht_time_to_seconds((string) $horarioIngreso);
+    $limiteSalidaMadrugada = min($salida + 4 * 3600, $ingreso);
+
+    if ($hora <= $limiteSalidaMadrugada) {
+        return $fichada->modify('-1 day')->format('Y-m-d');
+    }
+
+    return $fichada->format('Y-m-d');
 }
 
 function ht_time_to_seconds(string $time): int
