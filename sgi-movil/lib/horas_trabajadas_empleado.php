@@ -375,6 +375,7 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
         $fichadasEmp,
         $datos['turnos'],
         $datos['feriados'],
+        $periodo['desde'],
         $periodo['hoy'],
         $personalId,
         $areaNombre,
@@ -926,6 +927,7 @@ function ht_tiene_fichada_incompleta(
     array $fichadasEmp,
     array $turnos,
     array $feriados,
+    DateTimeImmutable $desde,
     DateTimeImmutable $hoy,
     string $personalId,
     string $areaNombre,
@@ -939,6 +941,7 @@ function ht_tiene_fichada_incompleta(
     }
 
     $hoyStr = $hoy->format('Y-m-d');
+    $desdeStr = $desde->format('Y-m-d');
     $horarioIngresoNorm = ht_parse_horario_empleado(is_string($horarioIngreso) ? $horarioIngreso : null);
     $horarioSalidaNorm = ht_parse_horario_empleado(is_string($horarioSalida) ? $horarioSalida : null);
     $porDia = [];
@@ -948,6 +951,9 @@ function ht_tiene_fichada_incompleta(
     }
 
     foreach ($porDia as $fechaKey => $dia) {
+        if ($fechaKey < $desdeStr) {
+            continue;
+        }
         if (isset($feriados[$fechaKey])) {
             continue;
         }
