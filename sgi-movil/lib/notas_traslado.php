@@ -125,6 +125,55 @@ function notas_traslado_registrar_traza(PDO $pdo, string $notaId, string $accion
     ]);
 }
 
+function notas_traslado_actualizar_estado_y_traza(
+    PDO $pdo,
+    string $notaId,
+    int $statusId,
+    string $usuarioId,
+    string $accion,
+    string $detalle,
+    array $extraSet = []
+): void {
+    $set = [
+        'StatusNotaTrasladoId = :status',
+        'UserMod = :usuarioId',
+        'DateMod = NOW()',
+    ];
+    $params = [
+        'status' => $statusId,
+        'usuarioId' => $usuarioId,
+        'id' => $notaId,
+    ];
+
+    foreach ($extraSet as $column => $value) {
+        if (!preg_match('/^[A-Za-z0-9_]+$/', (string) $column)) {
+            throw new InvalidArgumentException('Columna no valida para actualizacion de Nota de Traslado.');
+        }
+
+        if ($value === '__NOW__') {
+            $set[] = $column . ' = NOW()';
+            continue;
+        }
+
+        $param = 'extra_' . $column;
+        $set[] = $column . ' = :' . $param;
+        $params[$param] = $value;
+    }
+
+    $upd = $pdo->prepare(
+        'UPDATE NotasTraslado
+         SET ' . implode(', ', $set) . '
+         WHERE Id = :id AND Estado = 1'
+    );
+    $upd->execute($params);
+
+    if ($upd->rowCount() < 1) {
+        throw new RuntimeException('No se pudo actualizar el estado de la Nota de Traslado.');
+    }
+
+    notas_traslado_registrar_traza($pdo, $notaId, $accion, $statusId, $detalle, $usuarioId);
+}
+
 function notas_traslado_base_select(): string
 {
     return 'SELECT n.Id, n.NumeroNota, n.Fecha, n.OrigenId, n.DestinoId, n.Externo, n.NombreEnvia, n.NombreRecibe, n.UserRecibeId,
@@ -213,66 +262,53 @@ function handle_notas_traslado_scan(PDO $pdo, array $config): void
 
         $status = (int) $nota['StatusNotaTrasladoId'];
         if ($isTransporte && ($status === NT_STATUS_RECEPCION_DESPACHO || $status === NT_STATUS_EN_TRANSITO)) {
-            $upd = $pdo->prepare(
-                'UPDATE NotasTraslado
-                 SET StatusNotaTrasladoId = :status,
-                     TransportistaAsignadoId = :usuarioId,
-                     FechaAsignacionTransporte = NOW(),
-                     UserMod = :usuarioId,
-                     DateMod = NOW()
-                 WHERE Id = :id AND Estado = 1'
+            notas_traslado_actualizar_estado_y_traza(
+                $pdo,
+                $notaId,
+                NT_STATUS_EN_TRANSITO,
+                $usuarioId,
+                'ASIGNACION_TRANSPORTE',
+                'Traslado asignado al transportista por escaneo QR.',
+                [
+                    'TransportistaAsignadoId' => $usuarioId,
+                    'FechaAsignacionTransporte' => '__NOW__',
+                ]
             );
-            $upd->execute([
-                'status' => NT_STATUS_EN_TRANSITO,
-                'usuarioId' => $usuarioId,
-                'id' => $notaId,
-            ]);
-            notas_traslado_registrar_traza($pdo, $notaId, 'ASIGNACION_TRANSPORTE', NT_STATUS_EN_TRANSITO, 'Traslado asignado al transportista por escaneo QR.', $usuarioId);
             $pdo->commit();
             json_response(['ok' => true, 'accion' => 'asignacion_transporte', 'message' => 'Traslado asignado correctamente.'], 200, $config);
             return;
         }
 
         if ($isDespacho && !$nota['Externo'] && $status === NT_STATUS_EN_TRANSITO && $depositoId !== '' && strtolower((string) $nota['DestinoId']) === strtolower($depositoId)) {
-            $upd = $pdo->prepare(
-                'UPDATE NotasTraslado
-                 SET StatusNotaTrasladoId = :status,
-                     UserMod = :usuarioId,
-                     DateMod = NOW()
-                 WHERE Id = :id AND Estado = 1'
+            notas_traslado_actualizar_estado_y_traza(
+                $pdo,
+                $notaId,
+                NT_STATUS_RECEPCION_SEDE,
+                $usuarioId,
+                'RECEPCION_SEDE',
+                'Recepcion en sede registrada por escaneo QR.'
             );
-            $upd->execute([
-                'status' => NT_STATUS_RECEPCION_SEDE,
-                'usuarioId' => $usuarioId,
-                'id' => $notaId,
-            ]);
-            notas_traslado_registrar_traza($pdo, $notaId, 'RECEPCION_SEDE', NT_STATUS_RECEPCION_SEDE, 'Recepcion en sede registrada por escaneo QR.', $usuarioId);
             $pdo->commit();
             json_response(['ok' => true, 'accion' => 'recepcion_sede', 'message' => 'Recepción en sede registrada correctamente.'], 200, $config);
             return;
         }
 
         if (!$nota['Externo'] && $status === NT_STATUS_RECEPCION_SEDE && $personalId !== '' && strtolower((string) $nota['UserRecibeId']) === strtolower($personalId)) {
-            $upd = $pdo->prepare(
-                'UPDATE NotasTraslado
-                 SET StatusNotaTrasladoId = :status,
-                     UserMod = :usuarioId,
-                     DateMod = NOW()
-                 WHERE Id = :id AND Estado = 1'
+            notas_traslado_actualizar_estado_y_traza(
+                $pdo,
+                $notaId,
+                NT_STATUS_RECIBIDA,
+                $usuarioId,
+                'RECEPCION_FINAL_QR',
+                'Recepcion final registrada por escaneo QR.'
             );
-            $upd->execute([
-                'status' => NT_STATUS_RECIBIDA,
-                'usuarioId' => $usuarioId,
-                'id' => $notaId,
-            ]);
-            notas_traslado_registrar_traza($pdo, $notaId, 'RECEPCION_FINAL_QR', NT_STATUS_RECIBIDA, 'Recepcion final registrada por escaneo QR.', $usuarioId);
             $pdo->commit();
             json_response(['ok' => true, 'accion' => 'recepcion_final', 'message' => 'Traslado recibido correctamente.'], 200, $config);
             return;
         }
 
         $pdo->rollBack();
-        json_response(['ok' => false, 'message' => 'La nota no admite esta acción con su rol o estado actual.'], 409, $config);
+        json_response(['ok' => false, 'message' => 'La operación que intenta realizar no está permitida o no es inválida.'], 409, $config);
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
@@ -339,19 +375,14 @@ function handle_notas_traslado_entregado(PDO $pdo, array $config, string $notaId
             return;
         }
 
-        $upd = $pdo->prepare(
-            'UPDATE NotasTraslado
-             SET StatusNotaTrasladoId = :status,
-                 UserMod = :usuarioId,
-                 DateMod = NOW()
-             WHERE Id = :id AND Estado = 1'
+        notas_traslado_actualizar_estado_y_traza(
+            $pdo,
+            $notaId,
+            NT_STATUS_ENTREGADO,
+            $usuarioId,
+            'ENTREGA_EXTERNA',
+            'Traslado externo marcado como entregado por transporte.'
         );
-        $upd->execute([
-            'status' => NT_STATUS_ENTREGADO,
-            'usuarioId' => $usuarioId,
-            'id' => $notaId,
-        ]);
-        notas_traslado_registrar_traza($pdo, $notaId, 'ENTREGA_EXTERNA', NT_STATUS_ENTREGADO, 'Traslado externo marcado como entregado por transporte.', $usuarioId);
         $pdo->commit();
         json_response(['ok' => true, 'message' => 'Entrega registrada correctamente.'], 200, $config);
     } catch (Throwable $e) {
