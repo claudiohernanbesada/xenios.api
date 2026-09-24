@@ -177,6 +177,7 @@ function notas_traslado_actualizar_estado_y_traza(
 function notas_traslado_base_select(): string
 {
     return 'SELECT n.Id, n.NumeroNota, n.Fecha, n.OrigenId, n.DestinoId, n.Externo, n.NombreEnvia, n.NombreRecibe, n.UserRecibeId,
+                   ua.DepositoId AS UserAddDepositoId,
                    n.StatusNotaTrasladoId, n.TransportistaAsignadoId, n.FechaAsignacionTransporte,
                    o.Nombre AS Origen,
                    CASE WHEN n.Externo = 1 THEN COALESCE(e.Nombre, n.ReceptorExterno, "Externo")
@@ -261,6 +262,24 @@ function handle_notas_traslado_scan(PDO $pdo, array $config): void
         }
 
         $status = (int) $nota['StatusNotaTrasladoId'];
+        $isAdmin = notas_traslado_is_admin($roles);
+        $mismaSucursalOrigen = $depositoId !== ''
+            && strtolower((string) $nota['UserAddDepositoId']) === strtolower($depositoId);
+
+        if ($isDespacho && $status === NT_STATUS_GENERADA && ($isAdmin || $mismaSucursalOrigen)) {
+            notas_traslado_actualizar_estado_y_traza(
+                $pdo,
+                $notaId,
+                NT_STATUS_RECEPCION_DESPACHO,
+                $usuarioId,
+                'RECEPCION_DESPACHO_QR',
+                'Recepcion en despacho registrada por escaneo QR.'
+            );
+            $pdo->commit();
+            json_response(['ok' => true, 'accion' => 'recepcion_despacho', 'message' => 'Recepción en despacho registrada correctamente.'], 200, $config);
+            return;
+        }
+
         if ($isTransporte && ($status === NT_STATUS_RECEPCION_DESPACHO || $status === NT_STATUS_EN_TRANSITO)) {
             notas_traslado_actualizar_estado_y_traza(
                 $pdo,
@@ -279,7 +298,10 @@ function handle_notas_traslado_scan(PDO $pdo, array $config): void
             return;
         }
 
-        if ($isDespacho && !$nota['Externo'] && $status === NT_STATUS_EN_TRANSITO && $depositoId !== '' && strtolower((string) $nota['DestinoId']) === strtolower($depositoId)) {
+        $mismaSucursalDestino = $depositoId !== ''
+            && strtolower((string) $nota['DestinoId']) === strtolower($depositoId);
+
+        if ($isDespacho && !$nota['Externo'] && $status === NT_STATUS_EN_TRANSITO && ($isAdmin || $mismaSucursalDestino)) {
             notas_traslado_actualizar_estado_y_traza(
                 $pdo,
                 $notaId,
