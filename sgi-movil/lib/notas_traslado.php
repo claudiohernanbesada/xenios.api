@@ -159,7 +159,7 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
         $params['usuarioId'] = $usuarioId;
 
         if ($isTransporte) {
-            $visibility[] = '(n.StatusNotaTrasladoId = ' . NT_STATUS_RECEPCION_DESPACHO . ' OR n.TransportistaAsignadoId = :transportistaId)';
+            $visibility[] = 'n.TransportistaAsignadoId = :transportistaId';
             $params['transportistaId'] = $usuarioId;
         }
 
