@@ -353,7 +353,7 @@ function require_auth(PDO $pdo, array $config): array
     }
 
     $stmt = $pdo->prepare(
-        'SELECT Id, Nombre, Apellido, Mail, Estado, ImgPerfil
+        'SELECT Id, Nombre, Apellido, Mail, Estado, ImgPerfil, DepositoId
          FROM Usuarios WHERE Id = :id LIMIT 1'
     );
     $stmt->execute(['id' => $userId]);

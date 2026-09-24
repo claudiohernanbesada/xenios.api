@@ -15,6 +15,7 @@ require_once __DIR__ . '/lib/password_reset.php';
 require_once __DIR__ . '/lib/vacaciones.php';
 require_once __DIR__ . '/lib/auth_salida_list.php';
 require_once __DIR__ . '/lib/auth_salida_scan.php';
+require_once __DIR__ . '/lib/notas_traslado.php';
 require_once __DIR__ . '/lib/usuarios.php';
 require_once __DIR__ . '/lib/areas.php';
 require_once __DIR__ . '/lib/reportes_sgi.php';
@@ -72,8 +73,12 @@ try {
         $method === 'GET' && $path === '/reportes/asistencia' => handle_reporte_asistencia_sgi($pdo, $config),
         $method === 'GET' && $path === '/reportes/asistencia-detallada' => handle_reporte_asistencia_detallada_sgi($pdo, $config),
         $method === 'GET' && $path === '/reportes/horas-trabajadas' => handle_reporte_horas_trabajadas_sgi($pdo, $config),
+        $method === 'GET' && $path === '/notas-traslado' => handle_notas_traslado_list($pdo, $config),
+        $method === 'POST' && $path === '/notas-traslado/scan' => handle_notas_traslado_scan($pdo, $config),
         $method === 'POST' && $path === '/novedades' => handle_novedades_enviar($pdo, $config),
-        default => handle_novedades_routes($pdo, $config, $path, $method),
+        default => handle_notas_traslado_routes($pdo, $config, $path, $method)
+            ? null
+            : handle_novedades_routes($pdo, $config, $path, $method),
     };
 // Cualquier excepción sin atrapar en un handler → 500 genérico
 } catch (Throwable $e) {
