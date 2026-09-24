@@ -91,6 +91,151 @@ function notas_traslado_status_label(int $status): string
     };
 }
 
+function notas_traslado_pdf_escape(string $text): string
+{
+    $text = preg_replace('/\s+/u', ' ', trim($text)) ?? trim($text);
+    if (function_exists('iconv')) {
+        $converted = @iconv('UTF-8', 'Windows-1252//TRANSLIT', $text);
+        if (is_string($converted)) {
+            $text = $converted;
+        }
+    }
+
+    return str_replace(['\\', '(', ')'], ['\\\\', '\\(', '\\)'], $text);
+}
+
+function notas_traslado_pdf_wrap(string $text, int $maxChars = 86): array
+{
+    $words = preg_split('/\s+/u', trim($text)) ?: [];
+    $lines = [];
+    $current = '';
+
+    foreach ($words as $word) {
+        $candidate = $current === '' ? $word : $current . ' ' . $word;
+        $candidateLength = function_exists('mb_strlen') ? mb_strlen($candidate) : strlen($candidate);
+        if ($candidateLength > $maxChars && $current !== '') {
+            $lines[] = $current;
+            $current = $word;
+            continue;
+        }
+        $current = $candidate;
+    }
+
+    if ($current !== '') {
+        $lines[] = $current;
+    }
+
+    return $lines !== [] ? $lines : ['-'];
+}
+
+function notas_traslado_pdf_add_line(array &$pages, string &$content, float &$y, string $text, int $size = 10, bool $bold = false, float $x = 40): void
+{
+    if ($y < 58) {
+        $pages[] = $content;
+        $content = '';
+        $y = 802;
+    }
+
+    $font = $bold ? 'F2' : 'F1';
+    $content .= sprintf("BT /%s %d Tf 1 0 0 1 %.2F %.2F Tm (%s) Tj ET\n", $font, $size, $x, $y, notas_traslado_pdf_escape($text));
+    $y -= max(12, $size + 4);
+}
+
+function notas_traslado_pdf_build(array $nota, array $detalles): string
+{
+    $pages = [];
+    $content = '';
+    $y = 802.0;
+
+    notas_traslado_pdf_add_line($pages, $content, $y, 'METALURGICA RAEI S.A.', 12, true);
+    notas_traslado_pdf_add_line($pages, $content, $y, 'CUIT: 30-51663575-0 - IVA RESPONSABLE INSCRIPTO', 9);
+    $y -= 12;
+    notas_traslado_pdf_add_line($pages, $content, $y, 'NOTA DE TRASLADO', 20, true);
+    notas_traslado_pdf_add_line($pages, $content, $y, 'Nro. ' . (string) $nota['NumeroNota'], 13, true);
+    notas_traslado_pdf_add_line($pages, $content, $y, 'Documento no valido como factura', 9);
+    notas_traslado_pdf_add_line($pages, $content, $y, 'Fecha: ' . date('d/m/Y', strtotime((string) $nota['Fecha'])), 10, true);
+    notas_traslado_pdf_add_line($pages, $content, $y, 'Estado: ' . notas_traslado_status_label((int) $nota['StatusNotaTrasladoId']), 10, true);
+    $y -= 10;
+
+    $destino = (bool) $nota['Externo']
+        ? ((string) ($nota['EmpresaNombre'] ?? $nota['ReceptorExterno'] ?? 'Externo'))
+        : ((string) ($nota['Destino'] ?? '-'));
+
+    foreach ([
+        'Origen: ' . (string) ($nota['Origen'] ?? '-'),
+        'Destino: ' . $destino,
+        'Envia: ' . (string) ($nota['NombreEnvia'] ?? '-'),
+        'Recibe: ' . (string) ($nota['NombreRecibe'] ?? '-'),
+    ] as $line) {
+        notas_traslado_pdf_add_line($pages, $content, $y, $line, 11, true);
+    }
+
+    $y -= 8;
+    notas_traslado_pdf_add_line($pages, $content, $y, 'Detalle', 12, true);
+    notas_traslado_pdf_add_line($pages, $content, $y, 'Cant.    Descripcion', 10, true);
+
+    if ($detalles === []) {
+        notas_traslado_pdf_add_line($pages, $content, $y, '-       Sin items cargados', 10);
+    }
+
+    foreach ($detalles as $detalle) {
+        $cantidad = str_pad((string) ((int) $detalle['Cantidad']), 7);
+        $wrapped = notas_traslado_pdf_wrap((string) $detalle['Detalle']);
+        foreach ($wrapped as $index => $line) {
+            notas_traslado_pdf_add_line($pages, $content, $y, ($index === 0 ? $cantidad : '       ') . $line, 10);
+        }
+    }
+
+    if ((bool) $nota['Externo']) {
+        $y -= 18;
+        notas_traslado_pdf_add_line($pages, $content, $y, 'Recepcion externa', 11, true);
+        $y -= 58;
+        notas_traslado_pdf_add_line($pages, $content, $y, '____________________        ____________________        ____________________', 10);
+        notas_traslado_pdf_add_line($pages, $content, $y, 'Fecha de Recepcion          Firma del Receptor          Aclaracion', 9);
+    }
+
+    notas_traslado_pdf_add_line($pages, $content, $y, 'METALURGICA RAEI S.A. - 25 de Mayo 2765, San Fernando CP (1646) - Buenos Aires, Argentina', 9, true);
+    $pages[] = $content;
+
+    $pageCount = count($pages);
+    $fontRegularId = 3 + ($pageCount * 2);
+    $fontBoldId = $fontRegularId + 1;
+    $objects = [];
+    $kids = [];
+
+    $objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+    foreach ($pages as $index => $stream) {
+        $pageObjId = 3 + ($index * 2);
+        $contentObjId = $pageObjId + 1;
+        $kids[] = $pageObjId . ' 0 R';
+        $objects[$pageObjId] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ' . $fontRegularId . ' 0 R /F2 ' . $fontBoldId . ' 0 R >> >> /Contents ' . $contentObjId . ' 0 R >>';
+        $objects[$contentObjId] = '<< /Length ' . strlen($stream) . " >>\nstream\n" . $stream . "endstream";
+    }
+
+    $objects[2] = '<< /Type /Pages /Count ' . $pageCount . ' /Kids [' . implode(' ', $kids) . '] >>';
+    $objects[$fontRegularId] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+    $objects[$fontBoldId] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+    ksort($objects);
+
+    $pdf = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
+    $offsets = [];
+    foreach ($objects as $id => $body) {
+        $offsets[$id] = strlen($pdf);
+        $pdf .= $id . " 0 obj\n" . $body . "\nendobj\n";
+    }
+
+    $xref = strlen($pdf);
+    $max = max(array_keys($objects));
+    $pdf .= "xref\n0 " . ($max + 1) . "\n";
+    $pdf .= "0000000000 65535 f \n";
+    for ($i = 1; $i <= $max; $i++) {
+        $pdf .= sprintf("%010d 00000 n \n", $offsets[$i] ?? 0);
+    }
+    $pdf .= "trailer\n<< /Size " . ($max + 1) . " /Root 1 0 R >>\nstartxref\n" . $xref . "\n%%EOF";
+
+    return $pdf;
+}
+
 function notas_traslado_map_row(array $row): array
 {
     $statusId = (int) $row['StatusNotaTrasladoId'];
@@ -177,6 +322,7 @@ function notas_traslado_actualizar_estado_y_traza(
 function notas_traslado_base_select(): string
 {
     return 'SELECT n.Id, n.NumeroNota, n.Fecha, n.OrigenId, n.DestinoId, n.Externo, n.NombreEnvia, n.NombreRecibe, n.UserRecibeId,
+                   n.UserAdd, n.ReceptorExterno, e.Nombre AS EmpresaNombre,
                    ua.DepositoId AS UserAddDepositoId,
                    n.StatusNotaTrasladoId, n.TransportistaAsignadoId, n.FechaAsignacionTransporte,
                    o.Nombre AS Origen,
@@ -189,10 +335,58 @@ function notas_traslado_base_select(): string
             LEFT JOIN Empresa e ON e.Id = n.EmpresaId';
 }
 
+function notas_traslado_puede_ver(array $nota, array $roles, string $usuarioId, string $depositoId): bool
+{
+    if (notas_traslado_is_admin($roles) || notas_traslado_has_role($roles, 'NOTA_TRASLADO_FULL_USERS')) {
+        return true;
+    }
+
+    if (strtolower((string) $nota['UserAdd']) === strtolower($usuarioId)) {
+        return true;
+    }
+
+    $status = (int) $nota['StatusNotaTrasladoId'];
+    if (
+        notas_traslado_has_role($roles, 'NOTA_TRASLADO_TRANSPORTE')
+        && strtolower((string) ($nota['TransportistaAsignadoId'] ?? '')) === strtolower($usuarioId)
+    ) {
+        return true;
+    }
+
+    if (!notas_traslado_has_role($roles, 'NOTA_TRASLADO_DESPACHO') || $depositoId === '') {
+        return false;
+    }
+
+    $mismaSucursalOrigen = strtolower((string) $nota['UserAddDepositoId']) === strtolower($depositoId);
+    $mismaSucursalDestino = strtolower((string) $nota['DestinoId']) === strtolower($depositoId);
+
+    return (
+        $mismaSucursalOrigen
+        && in_array($status, [NT_STATUS_GENERADA, NT_STATUS_RECEPCION_DESPACHO, NT_STATUS_ENTREGADO], true)
+    ) || (
+        $mismaSucursalDestino
+        && $status === NT_STATUS_EN_TRANSITO
+    );
+}
+
 function handle_notas_traslado_list(PDO $pdo, array $config): void
 {
     $auth = require_auth($pdo, $config);
     notas_traslado_require_role($auth['roles'], $config);
+
+    $desde = trim((string) ($_GET['desde'] ?? ''));
+    $hasta = trim((string) ($_GET['hasta'] ?? ''));
+    if ($desde !== '' || $hasta !== '') {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $desde) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $hasta)) {
+            json_response(['message' => 'Parámetros desde/hasta inválidos (YYYY-MM-DD)'], 400, $config);
+            return;
+        }
+
+        if ($desde > $hasta) {
+            json_response(['message' => 'La fecha desde no puede ser posterior a hasta'], 400, $config);
+            return;
+        }
+    }
 
     $usuarioId = (string) $auth['user']['Id'];
     $depositoId = (string) ($auth['user']['DepositoId'] ?? '');
@@ -203,6 +397,12 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
 
     $where = ['n.Estado = 1'];
     $params = [];
+
+    if ($desde !== '' && $hasta !== '') {
+        $where[] = 'DATE(n.Fecha) BETWEEN :desde AND :hasta';
+        $params['desde'] = $desde;
+        $params['hasta'] = $hasta;
+    }
 
     if (!$isAdmin) {
         $visibility = ['n.UserAdd = :usuarioId'];
@@ -415,6 +615,59 @@ function handle_notas_traslado_entregado(PDO $pdo, array $config, string $notaId
     }
 }
 
+function handle_notas_traslado_documento(PDO $pdo, array $config, string $notaId): void
+{
+    $auth = require_auth($pdo, $config);
+    notas_traslado_require_role($auth['roles'], $config);
+
+    $notaId = notas_traslado_extract_id($notaId);
+    if ($notaId === '') {
+        json_response(['message' => 'Nota de Traslado no válida'], 400, $config);
+        return;
+    }
+
+    $usuarioId = (string) $auth['user']['Id'];
+    $depositoId = (string) ($auth['user']['DepositoId'] ?? '');
+
+    $stmt = $pdo->prepare(notas_traslado_base_select() . ' WHERE n.Id = :id AND n.Estado = 1 LIMIT 1');
+    $stmt->execute(['id' => $notaId]);
+    $nota = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$nota) {
+        json_response(['message' => 'Nota de Traslado no encontrada'], 404, $config);
+        return;
+    }
+
+    if (!notas_traslado_puede_ver($nota, $auth['roles'], $usuarioId, $depositoId)) {
+        json_response(['message' => 'Sin permisos para visualizar la Nota de Traslado'], 403, $config);
+        return;
+    }
+
+    if ((int) $nota['StatusNotaTrasladoId'] === NT_STATUS_ANULADA) {
+        json_response(['message' => 'La Nota de Traslado se encuentra anulada'], 409, $config);
+        return;
+    }
+
+    $detStmt = $pdo->prepare(
+        'SELECT Cantidad, Detalle
+         FROM NotaTrasladoDetalle
+         WHERE IdNotaTraslado = :id AND Estado = 1
+         ORDER BY Id'
+    );
+    $detStmt->execute(['id' => $notaId]);
+    $detalles = $detStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    $pdf = notas_traslado_pdf_build($nota, $detalles);
+    $fileName = 'NotaTraslado_' . preg_replace('/[^A-Za-z0-9._-]+/', '_', (string) $nota['NumeroNota']) . '.pdf';
+
+    apply_cors($config);
+    header('Content-Type: application/pdf');
+    header('Content-Disposition: inline; filename="' . $fileName . '"');
+    header('Content-Length: ' . strlen($pdf));
+    echo $pdf;
+    exit;
+}
+
 function handle_notas_traslado_routes(PDO $pdo, array $config, string $path, string $method): bool
 {
     if ($method === 'GET' && $path === '/notas-traslado') {
@@ -429,6 +682,11 @@ function handle_notas_traslado_routes(PDO $pdo, array $config, string $path, str
 
     if ($method === 'POST' && preg_match('#^/notas-traslado/([^/]+)/entregado$#', $path, $m)) {
         handle_notas_traslado_entregado($pdo, $config, $m[1]);
+        return true;
+    }
+
+    if ($method === 'GET' && preg_match('#^/notas-traslado/([^/]+)/documento$#', $path, $m)) {
+        handle_notas_traslado_documento($pdo, $config, $m[1]);
         return true;
     }
 
