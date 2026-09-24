@@ -214,7 +214,7 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
         }
 
         if ($isDespacho && $depositoId !== '') {
-            $visibility[] = '(ua.DepositoId = :depositoId AND n.StatusNotaTrasladoId IN (' . NT_STATUS_GENERADA . ',' . NT_STATUS_ENTREGADO . '))';
+            $visibility[] = '(ua.DepositoId = :depositoId AND n.StatusNotaTrasladoId IN (' . NT_STATUS_GENERADA . ',' . NT_STATUS_RECEPCION_DESPACHO . ',' . NT_STATUS_ENTREGADO . '))';
             $visibility[] = '(n.DestinoId = :depositoId AND n.StatusNotaTrasladoId = ' . NT_STATUS_EN_TRANSITO . ')';
             $params['depositoId'] = $depositoId;
         }
