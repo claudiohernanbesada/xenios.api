@@ -757,21 +757,22 @@ function handle_notas_traslado_documento(PDO $pdo, array $config, string $notaId
         return;
     }
 
-    $detStmt = $pdo->prepare(
-        'SELECT Cantidad, Detalle
-         FROM NotaTrasladoDetalle
-         WHERE IdNotaTraslado = :id AND Estado = 1
-         ORDER BY Id'
-    );
-    $detStmt->execute(['id' => $notaId]);
-    $detalles = $detStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $fileStmt = $pdo->prepare('SELECT FileNota FROM NotasTraslado WHERE Id = :id AND Estado = 1 LIMIT 1');
+    $fileStmt->execute(['id' => $notaId]);
+    $pdf = (string) ($fileStmt->fetchColumn() ?: '');
+    if ($pdf === '') {
+        json_response(['message' => 'La Nota de Traslado no tiene archivo PDF generado. Edite y guarde la nota para regenerarlo.'], 404, $config);
+        return;
+    }
 
-    $pdf = notas_traslado_pdf_build($nota, $detalles);
     $fileName = 'NotaTraslado_' . preg_replace('/[^A-Za-z0-9._-]+/', '_', (string) $nota['NumeroNota']) . '.pdf';
 
     apply_cors($config);
     header('Content-Type: application/pdf');
     header('Content-Disposition: inline; filename="' . $fileName . '"');
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    header('Expires: 0');
     header('Content-Length: ' . strlen($pdf));
     echo $pdf;
     exit;
