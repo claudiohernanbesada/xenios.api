@@ -583,6 +583,15 @@ function handle_notas_traslado_scan(PDO $pdo, array $config): void
         }
 
         if ($isTransporte && ($status === NT_STATUS_RECEPCION_DESPACHO || $status === NT_STATUS_EN_TRANSITO)) {
+            if (strtolower((string) ($nota['TransportistaAsignadoId'] ?? '')) === strtolower($usuarioId)) {
+                $pdo->rollBack();
+                json_response([
+                    'ok' => false,
+                    'message' => 'La Nota de Traslado que intentas asignarte, ya está asignada a tu nombre.',
+                ], 409, $config);
+                return;
+            }
+
             notas_traslado_actualizar_estado_y_traza(
                 $pdo,
                 $notaId,
