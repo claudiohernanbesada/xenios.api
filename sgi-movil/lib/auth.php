@@ -382,3 +382,54 @@ function require_auth(PDO $pdo, array $config): array
         'roles' => $roles,
     ];
 }
+
+function require_auth_or_web_bridge(PDO $pdo, array $config): array
+{
+    if (bearer_token() !== null) {
+        return require_auth($pdo, $config);
+    }
+
+    $headers = function_exists('getallheaders') ? getallheaders() : [];
+    $userId = trim((string) ($headers['X-SGI-WEB-USER-ID'] ?? $_SERVER['HTTP_X_SGI_WEB_USER_ID'] ?? ''));
+    $timestamp = trim((string) ($headers['X-SGI-WEB-TS'] ?? $_SERVER['HTTP_X_SGI_WEB_TS'] ?? ''));
+    $signature = trim((string) ($headers['X-SGI-WEB-SIGNATURE'] ?? $_SERVER['HTTP_X_SGI_WEB_SIGNATURE'] ?? ''));
+
+    if ($userId === '' || $timestamp === '' || $signature === '' || !validar_api_key($config)) {
+        json_response(['message' => 'Token requerido'], 401, $config);
+        exit;
+    }
+
+    if (!ctype_digit($timestamp) || abs(time() - (int) $timestamp) > 300) {
+        json_response(['message' => 'Firma web expirada'], 401, $config);
+        exit;
+    }
+
+    $secret = config_api_key($config);
+    $expected = hash_hmac('sha256', $userId . '|' . $timestamp, $secret);
+    if ($secret === '' || !hash_equals($expected, $signature)) {
+        json_response(['message' => 'Firma web inválida'], 401, $config);
+        exit;
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT Id, Nombre, Apellido, Mail, Estado, ImgPerfil, DepositoId
+         FROM Usuarios WHERE Id = :id LIMIT 1'
+    );
+    $stmt->execute(['id' => $userId]);
+    $user = $stmt->fetch();
+    if (!$user || (int) $user['Estado'] !== 1) {
+        json_response(['message' => 'Usuario no disponible'], 403, $config);
+        exit;
+    }
+
+    $roles = fetch_user_roles($pdo, $userId);
+    $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+    $path = current_api_path($config);
+    enforce_method_for_roles($roles, $method, $path, $config);
+
+    return [
+        'token_payload' => ['sub' => $userId, 'source' => 'web'],
+        'user' => $user,
+        'roles' => $roles,
+    ];
+}
