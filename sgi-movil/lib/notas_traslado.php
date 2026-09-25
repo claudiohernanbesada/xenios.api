@@ -427,6 +427,7 @@ function notas_traslado_puede_ver(array $nota, array $roles, string $usuarioId, 
     $status = (int) $nota['StatusNotaTrasladoId'];
     if (
         notas_traslado_has_role($roles, 'NOTA_TRASLADO_TRANSPORTE')
+        && $status !== NT_STATUS_RECEPCION_SEDE
         && strtolower((string) ($nota['TransportistaAsignadoId'] ?? '')) === strtolower($usuarioId)
     ) {
         return true;
@@ -488,7 +489,7 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
         $params['usuarioId'] = $usuarioId;
 
         if ($isTransporte) {
-            $visibility[] = 'n.TransportistaAsignadoId = :transportistaId';
+            $visibility[] = '(n.TransportistaAsignadoId = :transportistaId AND n.StatusNotaTrasladoId <> ' . NT_STATUS_RECEPCION_SEDE . ')';
             $params['transportistaId'] = $usuarioId;
         }
 
