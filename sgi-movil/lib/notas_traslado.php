@@ -141,60 +141,120 @@ function notas_traslado_pdf_add_line(array &$pages, string &$content, float &$y,
     $y -= max(12, $size + 4);
 }
 
+function notas_traslado_pdf_text(string &$content, float $x, float $y, string $text, int $size = 10, bool $bold = false, string $rgb = '0 0 0'): void
+{
+    $font = $bold ? 'F2' : 'F1';
+    $content .= sprintf(
+        "%s rg BT /%s %d Tf 1 0 0 1 %.2F %.2F Tm (%s) Tj ET\n0 0 0 rg\n",
+        $rgb,
+        $font,
+        $size,
+        $x,
+        $y,
+        notas_traslado_pdf_escape($text)
+    );
+}
+
+function notas_traslado_pdf_rect(string &$content, float $x, float $y, float $w, float $h, string $stroke = '0.82 0.84 0.86', string $fill = ''): void
+{
+    if ($fill !== '') {
+        $content .= sprintf("%s rg %.2F %.2F %.2F %.2F re f\n0 0 0 rg\n", $fill, $x, $y, $w, $h);
+    }
+
+    $content .= sprintf("%s RG %.2F w %.2F %.2F %.2F %.2F re S\n0 0 0 RG\n", $stroke, 0.8, $x, $y, $w, $h);
+}
+
+function notas_traslado_pdf_line(string &$content, float $x1, float $y1, float $x2, float $y2, string $stroke = '0.82 0.84 0.86'): void
+{
+    $content .= sprintf("%s RG %.2F w %.2F %.2F m %.2F %.2F l S\n0 0 0 RG\n", $stroke, 0.8, $x1, $y1, $x2, $y2);
+}
+
+function notas_traslado_pdf_summary_box(string &$content, float $x, float $y, float $w, string $title, string $value): void
+{
+    notas_traslado_pdf_rect($content, $x, $y, $w, 44);
+    notas_traslado_pdf_text($content, $x + 10, $y + 28, $title, 9, false, '0.35 0.37 0.40');
+    notas_traslado_pdf_text($content, $x + 10, $y + 12, $value !== '' ? $value : '-', 12, true);
+}
+
 function notas_traslado_pdf_build(array $nota, array $detalles): string
 {
     $pages = [];
     $content = '';
     $y = 802.0;
 
-    notas_traslado_pdf_add_line($pages, $content, $y, 'METALURGICA RAEI S.A.', 12, true);
-    notas_traslado_pdf_add_line($pages, $content, $y, 'CUIT: 30-51663575-0 - IVA RESPONSABLE INSCRIPTO', 9);
-    $y -= 12;
-    notas_traslado_pdf_add_line($pages, $content, $y, 'NOTA DE TRASLADO', 20, true);
-    notas_traslado_pdf_add_line($pages, $content, $y, 'Nro. ' . (string) $nota['NumeroNota'], 13, true);
-    notas_traslado_pdf_add_line($pages, $content, $y, 'Documento no valido como factura', 9);
-    notas_traslado_pdf_add_line($pages, $content, $y, 'Fecha: ' . date('d/m/Y', strtotime((string) $nota['Fecha'])), 10, true);
-    notas_traslado_pdf_add_line($pages, $content, $y, 'Estado: ' . notas_traslado_status_label((int) $nota['StatusNotaTrasladoId']), 10, true);
-    $y -= 10;
+    notas_traslado_pdf_text($content, 40, 760, 'RAEI', 26, true, '0.05 0.24 0.52');
+    notas_traslado_pdf_text($content, 40, 730, 'METALURGICA RAEI S.A.', 11, true);
+    notas_traslado_pdf_text($content, 40, 716, 'CUIT: 30-51663575-0');
+    notas_traslado_pdf_text($content, 40, 702, 'IVA RESPONSABLE INSCRIPTO');
+
+    notas_traslado_pdf_rect($content, 238, 682, 115, 115, '0.82 0.84 0.86', '1 1 1');
+    notas_traslado_pdf_text($content, 268, 755, 'QR', 20, true, '0.05 0.24 0.52');
+    notas_traslado_pdf_text($content, 255, 735, 'Nota de Traslado', 8, true);
+    notas_traslado_pdf_text($content, 249, 720, substr((string) $nota['Id'], 0, 18), 7);
+    notas_traslado_pdf_text($content, 249, 708, substr((string) $nota['Id'], 18), 7);
+
+    notas_traslado_pdf_text($content, 380, 760, 'NOTA DE TRASLADO', 20, true, '0.05 0.24 0.52');
+    notas_traslado_pdf_text($content, 430, 738, 'Nro. ' . (string) $nota['NumeroNota'], 13, true, '0.05 0.24 0.52');
+    notas_traslado_pdf_text($content, 398, 722, 'Documento no valido como factura', 9, false, '0.35 0.37 0.40');
+    notas_traslado_pdf_text($content, 450, 696, 'Fecha: ' . date('d/m/Y', strtotime((string) $nota['Fecha'])), 10, true);
+
+    notas_traslado_pdf_line($content, 32, 668, 563, 668);
 
     $destino = (bool) $nota['Externo']
         ? ((string) ($nota['EmpresaNombre'] ?? $nota['ReceptorExterno'] ?? 'Externo'))
         : ((string) ($nota['Destino'] ?? '-'));
 
-    foreach ([
-        'Origen: ' . (string) ($nota['Origen'] ?? '-'),
-        'Destino: ' . $destino,
-        'Envia: ' . (string) ($nota['NombreEnvia'] ?? '-'),
-        'Recibe: ' . (string) ($nota['NombreRecibe'] ?? '-'),
-    ] as $line) {
-        notas_traslado_pdf_add_line($pages, $content, $y, $line, 11, true);
-    }
+    notas_traslado_pdf_summary_box($content, 40, 608, 250, 'Origen', (string) ($nota['Origen'] ?? '-'));
+    notas_traslado_pdf_summary_box($content, 305, 608, 250, 'Destino', $destino);
+    notas_traslado_pdf_summary_box($content, 40, 552, 250, 'Envia', (string) ($nota['NombreEnvia'] ?? '-'));
+    notas_traslado_pdf_summary_box($content, 305, 552, 250, 'Recibe', (string) ($nota['NombreRecibe'] ?? '-'));
 
-    $y -= 8;
-    notas_traslado_pdf_add_line($pages, $content, $y, 'Detalle', 12, true);
-    notas_traslado_pdf_add_line($pages, $content, $y, 'Cant.    Descripcion', 10, true);
+    $y = 520.0;
+    notas_traslado_pdf_rect($content, 40, $y - 24, 515, 24, '0.05 0.24 0.52', '0.05 0.24 0.52');
+    notas_traslado_pdf_text($content, 70, $y - 16, 'Cantidad', 10, true, '1 1 1');
+    notas_traslado_pdf_text($content, 150, $y - 16, 'Detalle', 10, true, '1 1 1');
+    $y -= 24;
 
     if ($detalles === []) {
-        notas_traslado_pdf_add_line($pages, $content, $y, '-       Sin items cargados', 10);
+        notas_traslado_pdf_text($content, 150, $y - 16, 'Sin items cargados', 10);
+        notas_traslado_pdf_line($content, 40, $y - 24, 555, $y - 24);
+        $y -= 24;
     }
 
     foreach ($detalles as $detalle) {
-        $cantidad = str_pad((string) ((int) $detalle['Cantidad']), 7);
+        if ($y < 105) {
+            $pages[] = $content;
+            $content = '';
+            $y = 802.0;
+        }
+
+        $rowTop = $y;
+        notas_traslado_pdf_text($content, 80, $y - 16, (string) ((int) $detalle['Cantidad']), 10);
         $wrapped = notas_traslado_pdf_wrap((string) $detalle['Detalle']);
         foreach ($wrapped as $index => $line) {
-            notas_traslado_pdf_add_line($pages, $content, $y, ($index === 0 ? $cantidad : '       ') . $line, 10);
+            notas_traslado_pdf_text($content, 150, $y - 16, $line, 10);
+            $y -= 14;
         }
+
+        $rowHeight = max(24, $rowTop - $y + 8);
+        notas_traslado_pdf_line($content, 40, $rowTop - $rowHeight, 555, $rowTop - $rowHeight);
+        $y = $rowTop - $rowHeight;
     }
 
     if ((bool) $nota['Externo']) {
         $y -= 18;
-        notas_traslado_pdf_add_line($pages, $content, $y, 'Recepcion externa', 11, true);
-        $y -= 58;
-        notas_traslado_pdf_add_line($pages, $content, $y, '____________________        ____________________        ____________________', 10);
-        notas_traslado_pdf_add_line($pages, $content, $y, 'Fecha de Recepcion          Firma del Receptor          Aclaracion', 9);
+        notas_traslado_pdf_rect($content, 40, $y - 118, 515, 112);
+        notas_traslado_pdf_text($content, 52, $y - 24, 'Recepcion externa', 10, true, '0.35 0.37 0.40');
+        notas_traslado_pdf_line($content, 70, $y - 88, 200, $y - 88, '0.25 0.25 0.25');
+        notas_traslado_pdf_line($content, 235, $y - 88, 365, $y - 88, '0.25 0.25 0.25');
+        notas_traslado_pdf_line($content, 400, $y - 88, 530, $y - 88, '0.25 0.25 0.25');
+        notas_traslado_pdf_text($content, 92, $y - 104, 'Fecha de Recepcion', 8, false, '0.35 0.37 0.40');
+        notas_traslado_pdf_text($content, 265, $y - 104, 'Firma del Receptor', 8, false, '0.35 0.37 0.40');
+        notas_traslado_pdf_text($content, 446, $y - 104, 'Aclaracion', 8, false, '0.35 0.37 0.40');
     }
 
-    notas_traslado_pdf_add_line($pages, $content, $y, 'METALURGICA RAEI S.A. - 25 de Mayo 2765, San Fernando CP (1646) - Buenos Aires, Argentina', 9, true);
+    notas_traslado_pdf_line($content, 32, 58, 563, 58, '0.88 0.89 0.90');
+    notas_traslado_pdf_text($content, 52, 34, 'METALURGICA RAEI S.A. - 25 de Mayo 2765, San Fernando CP (1646) - Buenos Aires, Argentina', 10, true);
     $pages[] = $content;
 
     $pageCount = count($pages);
@@ -270,6 +330,21 @@ function notas_traslado_registrar_traza(PDO $pdo, string $notaId, string $accion
     ]);
 }
 
+function notas_traslado_registrar_log(PDO $pdo, string $usuarioId, string $detalle): void
+{
+    $stmt = $pdo->prepare(
+        'INSERT INTO Logs (UsuarioId, IP, Accion, Detalle, Plataforma, DateAction)
+         VALUES (:usuarioId, :ip, :accion, :detalle, :plataforma, NOW())'
+    );
+    $stmt->execute([
+        'usuarioId' => $usuarioId,
+        'ip' => (string) ($_SERVER['REMOTE_ADDR'] ?? ''),
+        'accion' => 'NOTA TRASLADO',
+        'detalle' => $detalle,
+        'plataforma' => 'mobil',
+    ]);
+}
+
 function notas_traslado_actualizar_estado_y_traza(
     PDO $pdo,
     string $notaId,
@@ -277,7 +352,8 @@ function notas_traslado_actualizar_estado_y_traza(
     string $usuarioId,
     string $accion,
     string $detalle,
-    array $extraSet = []
+    array $extraSet = [],
+    ?string $logDetalle = null
 ): void {
     $set = [
         'StatusNotaTrasladoId = :status',
@@ -317,6 +393,9 @@ function notas_traslado_actualizar_estado_y_traza(
     }
 
     notas_traslado_registrar_traza($pdo, $notaId, $accion, $statusId, $detalle, $usuarioId);
+    if ($logDetalle !== null && trim($logDetalle) !== '') {
+        notas_traslado_registrar_log($pdo, $usuarioId, $logDetalle);
+    }
 }
 
 function notas_traslado_base_select(): string
@@ -362,7 +441,7 @@ function notas_traslado_puede_ver(array $nota, array $roles, string $usuarioId, 
 
     return (
         $mismaSucursalOrigen
-        && in_array($status, [NT_STATUS_GENERADA, NT_STATUS_RECEPCION_DESPACHO, NT_STATUS_ENTREGADO], true)
+        && in_array($status, [NT_STATUS_RECEPCION_DESPACHO, NT_STATUS_ENTREGADO], true)
     ) || (
         $mismaSucursalDestino
         && $status === NT_STATUS_EN_TRANSITO
@@ -414,7 +493,7 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
         }
 
         if ($isDespacho && $depositoId !== '') {
-            $visibility[] = '(ua.DepositoId = :depositoId AND n.StatusNotaTrasladoId IN (' . NT_STATUS_GENERADA . ',' . NT_STATUS_RECEPCION_DESPACHO . ',' . NT_STATUS_ENTREGADO . '))';
+            $visibility[] = '(ua.DepositoId = :depositoId AND n.StatusNotaTrasladoId IN (' . NT_STATUS_RECEPCION_DESPACHO . ',' . NT_STATUS_ENTREGADO . '))';
             $visibility[] = '(n.DestinoId = :depositoId AND n.StatusNotaTrasladoId = ' . NT_STATUS_EN_TRANSITO . ')';
             $params['depositoId'] = $depositoId;
         }
@@ -473,7 +552,9 @@ function handle_notas_traslado_scan(PDO $pdo, array $config): void
                 NT_STATUS_RECEPCION_DESPACHO,
                 $usuarioId,
                 'RECEPCION_DESPACHO_QR',
-                'Recepcion en despacho registrada por escaneo QR.'
+                'Despacho recibio los items a trasladar.',
+                [],
+                'Recepcion Despacho Nota de Traslado: ' . (string) $nota['NumeroNota']
             );
             $pdo->commit();
             json_response(['ok' => true, 'accion' => 'recepcion_despacho', 'message' => 'Recepción en despacho registrada correctamente.'], 200, $config);
@@ -491,7 +572,8 @@ function handle_notas_traslado_scan(PDO $pdo, array $config): void
                 [
                     'TransportistaAsignadoId' => $usuarioId,
                     'FechaAsignacionTransporte' => '__NOW__',
-                ]
+                ],
+                'Cambio estado Nota de Traslado: ' . (string) $nota['NumeroNota'] . ' a ' . notas_traslado_status_label(NT_STATUS_EN_TRANSITO)
             );
             $pdo->commit();
             json_response(['ok' => true, 'accion' => 'asignacion_transporte', 'message' => 'Traslado asignado correctamente.'], 200, $config);
@@ -508,7 +590,9 @@ function handle_notas_traslado_scan(PDO $pdo, array $config): void
                 NT_STATUS_RECEPCION_SEDE,
                 $usuarioId,
                 'RECEPCION_SEDE',
-                'Recepcion en sede registrada por escaneo QR.'
+                'La sede destino recibio el traslado.',
+                [],
+                'Cambio estado Nota de Traslado: ' . (string) $nota['NumeroNota'] . ' a ' . notas_traslado_status_label(NT_STATUS_RECEPCION_SEDE)
             );
             $pdo->commit();
             json_response(['ok' => true, 'accion' => 'recepcion_sede', 'message' => 'Recepción en sede registrada correctamente.'], 200, $config);
@@ -522,7 +606,9 @@ function handle_notas_traslado_scan(PDO $pdo, array $config): void
                 NT_STATUS_RECIBIDA,
                 $usuarioId,
                 'RECEPCION_FINAL_QR',
-                'Recepcion final registrada por escaneo QR.'
+                'La nota fue cerrada como recibida.',
+                [],
+                'Recepcion QR Nota de Traslado: ' . (string) $nota['NumeroNota']
             );
             $pdo->commit();
             json_response(['ok' => true, 'accion' => 'recepcion_final', 'message' => 'Traslado recibido correctamente.'], 200, $config);
@@ -582,7 +668,7 @@ function handle_notas_traslado_entregado(PDO $pdo, array $config, string $notaId
 
     $pdo->beginTransaction();
     try {
-        $stmt = $pdo->prepare('SELECT Id, Externo, StatusNotaTrasladoId, TransportistaAsignadoId FROM NotasTraslado WHERE Id = :id AND Estado = 1 LIMIT 1 FOR UPDATE');
+        $stmt = $pdo->prepare('SELECT Id, NumeroNota, Externo, StatusNotaTrasladoId, TransportistaAsignadoId FROM NotasTraslado WHERE Id = :id AND Estado = 1 LIMIT 1 FOR UPDATE');
         $stmt->execute(['id' => $notaId]);
         $nota = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$nota) {
@@ -603,7 +689,9 @@ function handle_notas_traslado_entregado(PDO $pdo, array $config, string $notaId
             NT_STATUS_ENTREGADO,
             $usuarioId,
             'ENTREGA_EXTERNA',
-            'Traslado externo marcado como entregado por transporte.'
+            'El traslado fue entregado al destinatario.',
+            [],
+            'Cambio estado Nota de Traslado: ' . (string) $nota['NumeroNota'] . ' a ' . notas_traslado_status_label(NT_STATUS_ENTREGADO)
         );
         $pdo->commit();
         json_response(['ok' => true, 'message' => 'Entrega registrada correctamente.'], 200, $config);
