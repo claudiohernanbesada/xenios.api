@@ -28,7 +28,6 @@ function notas_traslado_has_role(array $roles, string $roleName): bool
 
 function notas_traslado_require_role(array $roles, array $config): void
 {
-    require_any_role($roles, $config);
     $allowed = [
         'SYSADMIN',
         'ADMIN',
@@ -39,6 +38,11 @@ function notas_traslado_require_role(array $roles, array $config): void
         'EMPLEADO',
     ];
     $upper = array_map(static fn ($r) => strtoupper(trim((string) $r)), $roles);
+    if (!user_has_any_role($roles)) {
+        json_response(['message' => 'Sin roles asignados. Contacte al administrador del sistema.'], 403, $config);
+        exit;
+    }
+
     if (array_intersect($allowed, $upper) === []) {
         json_response(['message' => 'Sin permisos para Notas de Traslado'], 403, $config);
         exit;
