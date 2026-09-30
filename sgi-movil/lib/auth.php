@@ -178,7 +178,11 @@ function empleado_may_write_avatar(string $path, string $method): bool
 // POSTs permitidos para rol EMPLEADO puro
 function empleado_may_post(string $path): bool
 {
-    return in_array($path, ['/auth/cambiar-clave', '/auth/avatar', '/push/fichadas/evento'], true);
+    if (in_array($path, ['/auth/cambiar-clave', '/auth/avatar', '/push/fichadas/evento', '/notas-traslado/scan'], true)) {
+        return true;
+    }
+
+    return (bool) preg_match('#^/notas-traslado/[0-9a-f-]{36}/recibido$#i', $path);
 }
 
 // Empleado solo lectura salvo login, cambio de clave y subir avatar
