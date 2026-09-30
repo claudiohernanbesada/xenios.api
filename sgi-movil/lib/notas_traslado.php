@@ -63,6 +63,23 @@ function notas_traslado_is_admin(array $roles): bool
     return notas_traslado_has_role($roles, 'SYSADMIN') || notas_traslado_has_role($roles, 'ADMIN');
 }
 
+function notas_traslado_normalizar_mail(mixed $mail): string
+{
+    return strtolower(trim((string) $mail));
+}
+
+function notas_traslado_es_receptor(array $nota, string $usuarioId, string $usuarioMail): bool
+{
+    if ($usuarioId !== '' && strtolower((string) ($nota['UserRecibeId'] ?? '')) === strtolower($usuarioId)) {
+        return true;
+    }
+
+    $mailReceptor = notas_traslado_normalizar_mail($nota['UserRecibeMail'] ?? '');
+    $mailUsuario = notas_traslado_normalizar_mail($usuarioMail);
+
+    return $mailReceptor !== '' && $mailUsuario !== '' && $mailReceptor === $mailUsuario;
+}
+
 function notas_traslado_extract_id(mixed $raw): string
 {
     $value = trim((string) $raw);
@@ -316,14 +333,14 @@ function notas_traslado_map_row(array $row, array $context = []): array
     $fechaActualizacion = strtotime((string) ($row['FechaActualizacion'] ?? $row['Fecha']));
     $roles = $context['roles'] ?? [];
     $usuarioId = (string) ($context['usuarioId'] ?? '');
+    $usuarioMail = (string) ($context['usuarioMail'] ?? '');
     $depositoId = (string) ($context['depositoId'] ?? '');
     $isAdmin = notas_traslado_is_admin($roles);
     $isDespacho = notas_traslado_has_role($roles, 'NOTA_TRASLADO_DESPACHO');
     $isTransporte = notas_traslado_has_role($roles, 'NOTA_TRASLADO_TRANSPORTE');
     $mismaSucursalOrigen = $depositoId !== ''
         && strtolower((string) ($row['UserAddDepositoId'] ?? '')) === strtolower($depositoId);
-    $esReceptorInterno = $usuarioId !== ''
-        && strtolower((string) ($row['UserRecibeId'] ?? '')) === strtolower($usuarioId);
+    $esReceptorInterno = notas_traslado_es_receptor($row, $usuarioId, $usuarioMail);
     $esTransportistaAsignado = $usuarioId !== ''
         && strtolower((string) ($row['TransportistaAsignadoId'] ?? '')) === strtolower($usuarioId);
 
@@ -459,7 +476,7 @@ function notas_traslado_actualizar_estado_y_traza(
 function notas_traslado_base_select(): string
 {
     return 'SELECT n.Id, n.NumeroNota, n.Fecha, n.OrigenId, n.DestinoId, n.Externo, n.NombreEnvia, n.NombreRecibe, n.UserRecibeId,
-                   n.UserAdd, n.ReceptorExterno, n.DocumentoFirmado, COALESCE(n.DateMod, n.DateAdd) AS FechaActualizacion,
+                   n.UserAdd, n.ReceptorExterno, n.DocumentoFirmado, ur.Mail AS UserRecibeMail, COALESCE(n.DateMod, n.DateAdd) AS FechaActualizacion,
                    CONCAT(COALESCE(um.Nombre, ua.Nombre), " ", COALESCE(um.Apellido, ua.Apellido)) AS UsuarioActualizacion,
                    e.Nombre AS EmpresaNombre,
                    ua.DepositoId AS UserAddDepositoId,
@@ -469,13 +486,14 @@ function notas_traslado_base_select(): string
                         ELSE COALESCE(d.Nombre, "-") END AS Destino
             FROM NotasTraslado n
             INNER JOIN Usuarios ua ON ua.Id = n.UserAdd
+            LEFT JOIN Usuarios ur ON ur.Id = n.UserRecibeId
             LEFT JOIN Usuarios um ON um.Id = n.UserMod
             LEFT JOIN Depositos o ON o.Id = n.OrigenId
             LEFT JOIN Depositos d ON d.Id = n.DestinoId
             LEFT JOIN Empresa e ON e.Id = n.EmpresaId';
 }
 
-function notas_traslado_puede_ver(array $nota, array $roles, string $usuarioId, string $depositoId): bool
+function notas_traslado_puede_ver(array $nota, array $roles, string $usuarioId, string $depositoId, string $usuarioMail = ''): bool
 {
     if (notas_traslado_is_admin($roles) || notas_traslado_has_role($roles, 'NOTA_TRASLADO_FULL_USERS')) {
         return true;
@@ -485,7 +503,7 @@ function notas_traslado_puede_ver(array $nota, array $roles, string $usuarioId, 
         return true;
     }
 
-    if (strtolower((string) ($nota['UserRecibeId'] ?? '')) === strtolower($usuarioId)) {
+    if (notas_traslado_es_receptor($nota, $usuarioId, $usuarioMail)) {
         return true;
     }
 
@@ -535,6 +553,7 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
     }
 
     $usuarioId = (string) $auth['user']['Id'];
+    $usuarioMail = (string) ($auth['user']['Mail'] ?? '');
     $depositoId = (string) ($auth['user']['DepositoId'] ?? '');
     $roles = $auth['roles'];
     $isAdmin = notas_traslado_is_admin($roles) || notas_traslado_has_role($roles, 'NOTA_TRASLADO_FULL_USERS');
@@ -557,8 +576,9 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
         $params['usuarioId'] = $usuarioId;
 
         $visibility[] = $mostrarTodos
-            ? 'n.UserRecibeId = :usuarioId'
-            : '(n.UserRecibeId = :usuarioId AND n.Externo = 0 AND n.StatusNotaTrasladoId <> ' . NT_STATUS_RECIBIDA . ')';
+            ? '(n.UserRecibeId = :usuarioId OR LOWER(ur.Mail) = :usuarioMail)'
+            : '((n.UserRecibeId = :usuarioId OR LOWER(ur.Mail) = :usuarioMail) AND n.Externo = 0 AND n.StatusNotaTrasladoId <> ' . NT_STATUS_RECIBIDA . ')';
+        $params['usuarioMail'] = notas_traslado_normalizar_mail($usuarioMail);
 
         if ($isTransporte) {
             $visibility[] = '(n.TransportistaAsignadoId = :transportistaId AND n.StatusNotaTrasladoId NOT IN (' . NT_STATUS_RECEPCION_SEDE . ',' . NT_STATUS_RECIBIDA . '))';
@@ -587,6 +607,7 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
     $context = [
         'roles' => $roles,
         'usuarioId' => $usuarioId,
+        'usuarioMail' => $usuarioMail,
         'depositoId' => $depositoId,
     ];
     json_response(['notas' => array_map(static fn ($row) => notas_traslado_map_row($row, $context), $rows)], 200, $config);
@@ -605,6 +626,7 @@ function handle_notas_traslado_scan(PDO $pdo, array $config): void
     }
 
     $usuarioId = (string) $auth['user']['Id'];
+    $usuarioMail = (string) ($auth['user']['Mail'] ?? '');
     $depositoId = (string) ($auth['user']['DepositoId'] ?? '');
     $roles = $auth['roles'];
     $isTransporte = notas_traslado_has_role($roles, 'NOTA_TRASLADO_TRANSPORTE');
@@ -690,7 +712,7 @@ function handle_notas_traslado_scan(PDO $pdo, array $config): void
             return;
         }
 
-        if (!$nota['Externo'] && $status === NT_STATUS_ENTREGADO && strtolower((string) $nota['UserRecibeId']) === strtolower($usuarioId)) {
+        if (!$nota['Externo'] && $status === NT_STATUS_ENTREGADO && notas_traslado_es_receptor($nota, $usuarioId, $usuarioMail)) {
             notas_traslado_actualizar_estado_y_traza(
                 $pdo,
                 $notaId,
@@ -823,10 +845,17 @@ function handle_notas_traslado_recibido(PDO $pdo, array $config, string $notaId)
 
     $notaId = notas_traslado_extract_id($notaId);
     $usuarioId = (string) $auth['user']['Id'];
+    $usuarioMail = (string) ($auth['user']['Mail'] ?? '');
 
     $pdo->beginTransaction();
     try {
-        $stmt = $pdo->prepare('SELECT Id, NumeroNota, Externo, StatusNotaTrasladoId, UserRecibeId, UserAdd FROM NotasTraslado WHERE Id = :id AND Estado = 1 LIMIT 1 FOR UPDATE');
+        $stmt = $pdo->prepare(
+            'SELECT n.Id, n.NumeroNota, n.Externo, n.StatusNotaTrasladoId, n.UserRecibeId, n.UserAdd, ur.Mail AS UserRecibeMail
+             FROM NotasTraslado n
+             LEFT JOIN Usuarios ur ON ur.Id = n.UserRecibeId
+             WHERE n.Id = :id AND n.Estado = 1
+             LIMIT 1 FOR UPDATE'
+        );
         $stmt->execute(['id' => $notaId]);
         $nota = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$nota) {
@@ -838,7 +867,7 @@ function handle_notas_traslado_recibido(PDO $pdo, array $config, string $notaId)
         if (
             (bool) $nota['Externo']
             || (int) $nota['StatusNotaTrasladoId'] !== NT_STATUS_ENTREGADO
-            || strtolower((string) $nota['UserRecibeId']) !== strtolower($usuarioId)
+            || !notas_traslado_es_receptor($nota, $usuarioId, $usuarioMail)
         ) {
             $pdo->rollBack();
             json_response(['message' => 'El traslado no puede marcarse como recibido.'], 409, $config);
@@ -887,6 +916,7 @@ function handle_notas_traslado_documento(PDO $pdo, array $config, string $notaId
     }
 
     $usuarioId = (string) $auth['user']['Id'];
+    $usuarioMail = (string) ($auth['user']['Mail'] ?? '');
     $depositoId = (string) ($auth['user']['DepositoId'] ?? '');
 
     $stmt = $pdo->prepare(notas_traslado_base_select() . ' WHERE n.Id = :id AND n.Estado = 1 LIMIT 1');
@@ -898,7 +928,7 @@ function handle_notas_traslado_documento(PDO $pdo, array $config, string $notaId
         return;
     }
 
-    if (!notas_traslado_puede_ver($nota, $auth['roles'], $usuarioId, $depositoId)) {
+    if (!notas_traslado_puede_ver($nota, $auth['roles'], $usuarioId, $depositoId, $usuarioMail)) {
         json_response(['message' => 'Sin permisos para visualizar la Nota de Traslado'], 403, $config);
         return;
     }
