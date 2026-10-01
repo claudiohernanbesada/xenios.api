@@ -10,6 +10,8 @@ const NT_STATUS_RECEPCION_SEDE = 4;
 const NT_STATUS_ENTREGADO = 5;
 const NT_STATUS_RECIBIDA = 6;
 const NT_STATUS_ANULADA = 7;
+const NT_STATUS_PENDIENTE_APROBACION = 8;
+const NT_STATUS_RECHAZADA = 9;
 
 function notas_traslado_has_role(array $roles, string $roleName): bool
 {
@@ -35,6 +37,7 @@ function notas_traslado_require_role(array $roles, array $config): void
         'NOTA_TRASLADO_FULL_USERS',
         'NOTA_TRASLADO_DESPACHO',
         'NOTA_TRASLADO_TRANSPORTE',
+        'NOTA_TRASLADO_APROBACION',
         'EMPLEADO',
     ];
     $upper = array_map(static fn ($r) => strtoupper(trim((string) $r)), $roles);
@@ -118,6 +121,8 @@ function notas_traslado_status_label(int $status): string
         NT_STATUS_ENTREGADO => 'Entregado',
         NT_STATUS_RECIBIDA => 'Recibida',
         NT_STATUS_ANULADA => 'Anulada',
+        NT_STATUS_PENDIENTE_APROBACION => 'Pendiente Aprobacion',
+        NT_STATUS_RECHAZADA => 'Rechazada',
         default => 'Desconocido',
     };
 }
@@ -231,9 +236,11 @@ function notas_traslado_pdf_build(array $nota, array $detalles): string
 
     notas_traslado_pdf_line($content, 32, 668, 563, 668);
 
-    $destino = (bool) $nota['Externo']
+    $destino = (bool) ($nota['DestinoEmpleado'] ?? false)
+        ? ('Empleado: ' . (string) ($nota['PersonalRecibeNombre'] ?? $nota['NombreRecibe'] ?? '-'))
+        : ((bool) $nota['Externo']
         ? ((string) ($nota['EmpresaNombre'] ?? $nota['ReceptorExterno'] ?? 'Externo'))
-        : ((string) ($nota['Destino'] ?? '-'));
+        : ((string) ($nota['Destino'] ?? '-')));
 
     notas_traslado_pdf_summary_box($content, 40, 608, 250, 'Origen', (string) ($nota['Origen'] ?? '-'));
     notas_traslado_pdf_summary_box($content, 305, 608, 250, 'Destino', $destino);
@@ -270,6 +277,19 @@ function notas_traslado_pdf_build(array $nota, array $detalles): string
         $rowHeight = max(24, $rowTop - $y + 8);
         notas_traslado_pdf_line($content, 40, $rowTop - $rowHeight, 555, $rowTop - $rowHeight);
         $y = $rowTop - $rowHeight;
+    }
+
+    $autorizante = trim((string) ($nota['UsuarioAprobacionNombre'] ?? ''));
+    if ($autorizante !== '') {
+        if ($y < 90) {
+            $pages[] = $content;
+            $content = '';
+            $y = 802.0;
+        }
+
+        $y -= 18;
+        notas_traslado_pdf_text($content, 40, $y, 'Autorizado por: ' . $autorizante, 10, true);
+        $y -= 12;
     }
 
     if ((bool) $nota['Externo']) {
@@ -338,6 +358,7 @@ function notas_traslado_map_row(array $row, array $context = []): array
     $isAdmin = notas_traslado_is_admin($roles);
     $isDespacho = notas_traslado_has_role($roles, 'NOTA_TRASLADO_DESPACHO');
     $isTransporte = notas_traslado_has_role($roles, 'NOTA_TRASLADO_TRANSPORTE');
+    $isAprobador = $isAdmin || notas_traslado_has_role($roles, 'NOTA_TRASLADO_APROBACION');
     $mismaSucursalOrigen = $depositoId !== ''
         && strtolower((string) ($row['UserAddDepositoId'] ?? '')) === strtolower($depositoId);
     $esReceptorInterno = notas_traslado_es_receptor($row, $usuarioId, $usuarioMail);
@@ -351,9 +372,11 @@ function notas_traslado_map_row(array $row, array $context = []): array
         'origen' => (string) ($row['Origen'] ?? '-'),
         'destino' => (string) ($row['Destino'] ?? '-'),
         'externo' => (bool) $row['Externo'],
+        'destinoEmpleado' => (bool) ($row['DestinoEmpleado'] ?? false),
         'destinoId' => $row['DestinoId'] !== null ? (string) $row['DestinoId'] : null,
         'userAdd' => (string) $row['UserAdd'],
         'userRecibeId' => $row['UserRecibeId'] !== null ? (string) $row['UserRecibeId'] : null,
+        'personalRecibeId' => $row['PersonalRecibeId'] !== null ? (string) $row['PersonalRecibeId'] : null,
         'documentoFirmado' => $row['DocumentoFirmado'] !== null ? (string) $row['DocumentoFirmado'] : null,
         'nombreEnvia' => (string) $row['NombreEnvia'],
         'nombreRecibe' => (string) $row['NombreRecibe'],
@@ -368,6 +391,7 @@ function notas_traslado_map_row(array $row, array $context = []): array
             || (!(bool) $row['Externo'] && $statusId === NT_STATUS_RECEPCION_SEDE && ($isAdmin || ($isDespacho && strtolower((string) ($row['DestinoId'] ?? '')) === strtolower($depositoId))))
         ),
         'puedeRecibir' => !(bool) $row['Externo'] && $statusId === NT_STATUS_ENTREGADO && $esReceptorInterno,
+        'puedeAprobar' => (bool) ($row['DestinoEmpleado'] ?? false) && $statusId === NT_STATUS_PENDIENTE_APROBACION && $isAprobador,
     ];
 }
 
@@ -475,14 +499,17 @@ function notas_traslado_actualizar_estado_y_traza(
 
 function notas_traslado_base_select(): string
 {
-    return 'SELECT n.Id, n.NumeroNota, n.Fecha, n.OrigenId, n.DestinoId, n.Externo, n.NombreEnvia, n.NombreRecibe, n.UserRecibeId,
+    return 'SELECT n.Id, n.NumeroNota, n.Fecha, n.OrigenId, n.DestinoId, n.Externo, n.DestinoEmpleado, n.PersonalRecibeId, n.NombreEnvia, n.NombreRecibe, n.UserRecibeId,
                    n.UserAdd, n.ReceptorExterno, n.DocumentoFirmado, ur.Mail AS UserRecibeMail, COALESCE(n.DateMod, n.DateAdd) AS FechaActualizacion,
                    CONCAT(COALESCE(um.Nombre, ua.Nombre), " ", COALESCE(um.Apellido, ua.Apellido)) AS UsuarioActualizacion,
                    e.Nombre AS EmpresaNombre,
+                   CONCAT(pr.Apellido, " ", pr.Nombre) AS PersonalRecibeNombre,
+                   CONCAT(uap.Nombre, " ", uap.Apellido) AS UsuarioAprobacionNombre,
                    ua.DepositoId AS UserAddDepositoId,
                    n.StatusNotaTrasladoId, n.TransportistaAsignadoId, n.FechaAsignacionTransporte,
                    o.Nombre AS Origen,
-                   CASE WHEN n.Externo = 1 THEN COALESCE(e.Nombre, n.ReceptorExterno, "Externo")
+                   CASE WHEN n.DestinoEmpleado = 1 THEN CONCAT("Empleado: ", COALESCE(CONCAT(pr.Apellido, " ", pr.Nombre), n.NombreRecibe, "-"))
+                        WHEN n.Externo = 1 THEN COALESCE(e.Nombre, n.ReceptorExterno, "Externo")
                         ELSE COALESCE(d.Nombre, "-") END AS Destino
             FROM NotasTraslado n
             INNER JOIN Usuarios ua ON ua.Id = n.UserAdd
@@ -490,7 +517,9 @@ function notas_traslado_base_select(): string
             LEFT JOIN Usuarios um ON um.Id = n.UserMod
             LEFT JOIN Depositos o ON o.Id = n.OrigenId
             LEFT JOIN Depositos d ON d.Id = n.DestinoId
-            LEFT JOIN Empresa e ON e.Id = n.EmpresaId';
+            LEFT JOIN Empresa e ON e.Id = n.EmpresaId
+            LEFT JOIN Personal pr ON pr.Id = n.PersonalRecibeId
+            LEFT JOIN Usuarios uap ON uap.Id = n.UsuarioAprobacionId';
 }
 
 function notas_traslado_puede_ver(array $nota, array $roles, string $usuarioId, string $depositoId, string $usuarioMail = ''): bool
@@ -508,6 +537,14 @@ function notas_traslado_puede_ver(array $nota, array $roles, string $usuarioId, 
     }
 
     $status = (int) $nota['StatusNotaTrasladoId'];
+    if (
+        (bool) ($nota['DestinoEmpleado'] ?? false)
+        && $status === NT_STATUS_PENDIENTE_APROBACION
+        && notas_traslado_has_role($roles, 'NOTA_TRASLADO_APROBACION')
+    ) {
+        return true;
+    }
+
     if (
         notas_traslado_has_role($roles, 'NOTA_TRASLADO_TRANSPORTE')
         && !in_array($status, [NT_STATUS_RECEPCION_SEDE, NT_STATUS_RECIBIDA], true)
@@ -559,6 +596,7 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
     $isAdmin = notas_traslado_is_admin($roles) || notas_traslado_has_role($roles, 'NOTA_TRASLADO_FULL_USERS');
     $isDespacho = notas_traslado_has_role($roles, 'NOTA_TRASLADO_DESPACHO');
     $isTransporte = notas_traslado_has_role($roles, 'NOTA_TRASLADO_TRANSPORTE');
+    $isAprobador = notas_traslado_has_role($roles, 'NOTA_TRASLADO_APROBACION');
 
     $where = ['n.Estado = 1'];
     $params = [];
@@ -574,6 +612,12 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
             ? 'n.UserAdd = :usuarioId'
             : '(n.UserAdd = :usuarioId AND n.StatusNotaTrasladoId <> ' . NT_STATUS_RECIBIDA . ')'];
         $params['usuarioId'] = $usuarioId;
+
+        if ($isAprobador) {
+            $visibility[] = $mostrarTodos
+                ? '(n.DestinoEmpleado = 1 AND n.StatusNotaTrasladoId <> ' . NT_STATUS_ANULADA . ')'
+                : '(n.DestinoEmpleado = 1 AND n.StatusNotaTrasladoId = ' . NT_STATUS_PENDIENTE_APROBACION . ')';
+        }
 
         $visibility[] = $mostrarTodos
             ? '(n.UserRecibeId = :usuarioId OR LOWER(ur.Mail) = :usuarioMail)'
@@ -904,6 +948,81 @@ function handle_notas_traslado_recibido(PDO $pdo, array $config, string $notaId)
     }
 }
 
+function handle_notas_traslado_aprobacion(PDO $pdo, array $config, string $notaId, bool $aprobar): void
+{
+    $auth = notas_traslado_require_auth($pdo, $config);
+    notas_traslado_require_role($auth['roles'], $config);
+
+    $roles = $auth['roles'];
+    if (!notas_traslado_is_admin($roles) && !notas_traslado_has_role($roles, 'NOTA_TRASLADO_APROBACION')) {
+        json_response(['message' => 'Sin permisos para aprobar notas de traslado'], 403, $config);
+        return;
+    }
+
+    $notaId = notas_traslado_extract_id($notaId);
+    $usuarioId = (string) $auth['user']['Id'];
+
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare(notas_traslado_base_select() . ' WHERE n.Id = :id AND n.Estado = 1 LIMIT 1 FOR UPDATE');
+        $stmt->execute(['id' => $notaId]);
+        $nota = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$nota) {
+            $pdo->rollBack();
+            json_response(['message' => 'Nota de Traslado no encontrada'], 404, $config);
+            return;
+        }
+
+        if (!(bool) ($nota['DestinoEmpleado'] ?? false) || (int) $nota['StatusNotaTrasladoId'] !== NT_STATUS_PENDIENTE_APROBACION) {
+            $pdo->rollBack();
+            json_response(['message' => 'La nota no se encuentra pendiente de aprobación.'], 409, $config);
+            return;
+        }
+
+        $status = $aprobar ? NT_STATUS_GENERADA : NT_STATUS_RECHAZADA;
+        notas_traslado_actualizar_estado_y_traza(
+            $pdo,
+            $notaId,
+            $status,
+            $usuarioId,
+            $aprobar ? 'APROBACION' : 'RECHAZO_APROBACION',
+            $aprobar ? 'La nota de traslado con destino a empleado fue aprobada.' : 'La nota de traslado con destino a empleado fue rechazada.',
+            [
+                'UsuarioAprobacionId' => $usuarioId,
+                'FechaAprobacion' => '__NOW__',
+            ],
+            ($aprobar ? 'Aprobacion' : 'Rechazo') . ' Nota de Traslado a Empleado: ' . (string) $nota['NumeroNota']
+        );
+
+        if ($aprobar) {
+            $detStmt = $pdo->prepare(
+                'SELECT Cantidad, Detalle
+                 FROM NotaTrasladoDetalle
+                 WHERE IdNotaTraslado = :id AND Estado = 1
+                 ORDER BY Id'
+            );
+            $detStmt->execute(['id' => $notaId]);
+            $detalles = $detStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            $nota['StatusNotaTrasladoId'] = NT_STATUS_GENERADA;
+            $nota['UsuarioAprobacionNombre'] = trim((string) ($auth['user']['Nombre'] ?? '') . ' ' . (string) ($auth['user']['Apellido'] ?? ''));
+            $pdf = notas_traslado_pdf_build($nota, $detalles);
+            $fileStmt = $pdo->prepare('UPDATE NotasTraslado SET FileNota = :pdf WHERE Id = :id AND Estado = 1');
+            $fileStmt->execute(['pdf' => $pdf, 'id' => $notaId]);
+        }
+
+        $pdo->commit();
+        json_response([
+            'ok' => true,
+            'message' => $aprobar ? 'Nota de Traslado aprobada correctamente.' : 'Nota de Traslado rechazada correctamente.',
+        ], 200, $config);
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
+}
+
 function handle_notas_traslado_documento(PDO $pdo, array $config, string $notaId): void
 {
     $auth = notas_traslado_require_auth($pdo, $config);
@@ -935,6 +1054,14 @@ function handle_notas_traslado_documento(PDO $pdo, array $config, string $notaId
 
     if ((int) $nota['StatusNotaTrasladoId'] === NT_STATUS_ANULADA) {
         json_response(['message' => 'La Nota de Traslado se encuentra anulada'], 409, $config);
+        return;
+    }
+
+    if (
+        (bool) ($nota['DestinoEmpleado'] ?? false)
+        && in_array((int) $nota['StatusNotaTrasladoId'], [NT_STATUS_PENDIENTE_APROBACION, NT_STATUS_RECHAZADA], true)
+    ) {
+        json_response(['message' => 'La Nota de Traslado con destino a empleado debe estar aprobada para visualizar el PDF.'], 409, $config);
         return;
     }
 
@@ -978,6 +1105,16 @@ function handle_notas_traslado_routes(PDO $pdo, array $config, string $path, str
 
     if ($method === 'POST' && preg_match('#^/notas-traslado/([^/]+)/recibido$#', $path, $m)) {
         handle_notas_traslado_recibido($pdo, $config, $m[1]);
+        return true;
+    }
+
+    if ($method === 'POST' && preg_match('#^/notas-traslado/([^/]+)/aprobar$#', $path, $m)) {
+        handle_notas_traslado_aprobacion($pdo, $config, $m[1], true);
+        return true;
+    }
+
+    if ($method === 'POST' && preg_match('#^/notas-traslado/([^/]+)/rechazar$#', $path, $m)) {
+        handle_notas_traslado_aprobacion($pdo, $config, $m[1], false);
         return true;
     }
 
