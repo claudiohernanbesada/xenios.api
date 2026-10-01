@@ -444,6 +444,52 @@ function notas_traslado_registrar_notificacion(PDO $pdo, string $usuarioId, stri
     ]);
 }
 
+function notas_traslado_solicitar_regeneracion_pdf_web(array $config, string $notaId): void
+{
+    $baseUrl = trim((string) ($config['sgi_web_base_url'] ?? ''));
+    if ($baseUrl === '') {
+        error_log('[notas_traslado] SGI_WEB_BASE_URL no configurado; no se pudo regenerar PDF web para nota ' . $notaId);
+        return;
+    }
+
+    if (!function_exists('curl_init')) {
+        error_log('[notas_traslado] cURL no disponible; no se pudo regenerar PDF web para nota ' . $notaId);
+        return;
+    }
+
+    $apiKey = config_api_key($config);
+    if ($apiKey === '') {
+        error_log('[notas_traslado] API key no configurada; no se pudo regenerar PDF web para nota ' . $notaId);
+        return;
+    }
+
+    $curl = curl_init(rtrim($baseUrl, '/') . '/NotasTraslado/RegenerarPdf/' . rawurlencode($notaId));
+    if ($curl === false) {
+        error_log('[notas_traslado] No se pudo iniciar cURL para regenerar PDF web de nota ' . $notaId);
+        return;
+    }
+
+    curl_setopt_array($curl, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_HTTPHEADER => [
+            'Accept: application/json',
+            'X-API-KEY: ' . $apiKey,
+        ],
+    ]);
+
+    $body = curl_exec($curl);
+    $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    $error = curl_error($curl);
+    curl_close($curl);
+
+    if ($body === false || $status < 200 || $status >= 300) {
+        error_log('[notas_traslado] Fallo regenerando PDF web de nota ' . $notaId . '. HTTP=' . $status . ' Error=' . $error . ' Body=' . substr((string) $body, 0, 300));
+    }
+}
+
 function notas_traslado_actualizar_estado_y_traza(
     PDO $pdo,
     string $notaId,
@@ -995,6 +1041,10 @@ function handle_notas_traslado_aprobacion(PDO $pdo, array $config, string $notaI
         );
 
         $pdo->commit();
+        if ($aprobar) {
+            notas_traslado_solicitar_regeneracion_pdf_web($config, $notaId);
+        }
+
         json_response([
             'ok' => true,
             'message' => $aprobar ? 'Nota de Traslado aprobada correctamente.' : 'Nota de Traslado rechazada correctamente.',

@@ -109,6 +109,7 @@ return [
     'cors_origin' => '*',
     // Clave única para endpoints de administración / sistemas externos (header X-API-KEY)
     'api_key' => sgi_api_token_esperado(),
+    'sgi_web_base_url' => rtrim((string) (getenv('SGI_WEB_BASE_URL') ?: ''), '/'),
     'app_version' => [
         'android_latest_version' => $publishedAppVersion,
         'android_store_url' => getenv('SGI_MOVIL_ANDROID_STORE_URL') ?: 'https://play.google.com/store/apps/details?id=ar.com.raei.sgi',
