@@ -473,7 +473,12 @@ function notas_traslado_registrar_notificacion(PDO $pdo, string $usuarioId, stri
 function notas_traslado_solicitar_regeneracion_pdf_web(array $config, string $notaId): bool
 {
     $baseUrl = trim((string) ($config['sgi_web_base_url'] ?? ''));
-    if ($baseUrl === '') {
+    $baseUrls = array_values(array_unique(array_filter([
+        $baseUrl,
+        'https://sgi.raei.com.ar',
+    ], static fn ($url) => trim((string) $url) !== '')));
+
+    if ($baseUrls === []) {
         error_log('[notas_traslado] SGI_WEB_BASE_URL no configurado; no se pudo regenerar PDF web para nota ' . $notaId);
         return false;
     }
@@ -489,34 +494,70 @@ function notas_traslado_solicitar_regeneracion_pdf_web(array $config, string $no
         return false;
     }
 
-    $curl = curl_init(rtrim($baseUrl, '/') . '/NotasTraslado/RegenerarPdf/' . rawurlencode($notaId));
-    if ($curl === false) {
-        error_log('[notas_traslado] No se pudo iniciar cURL para regenerar PDF web de nota ' . $notaId);
-        return false;
+    foreach ($baseUrls as $candidateBaseUrl) {
+        $url = rtrim((string) $candidateBaseUrl, '/') . '/NotasTraslado/RegenerarPdf/' . rawurlencode($notaId);
+        $curl = curl_init($url);
+        if ($curl === false) {
+            error_log('[notas_traslado] No se pudo iniciar cURL para regenerar PDF web de nota ' . $notaId . ' URL=' . $url);
+            continue;
+        }
+
+        curl_setopt_array($curl, [
+            CURLOPT_POST => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_HTTPHEADER => [
+                'Accept: application/json',
+                'X-API-KEY: ' . $apiKey,
+            ],
+        ]);
+
+        $body = curl_exec($curl);
+        $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+        $error = curl_error($curl);
+        curl_close($curl);
+
+        if ($body === false || $status < 200 || $status >= 300) {
+            error_log('[notas_traslado] Fallo regenerando PDF web de nota ' . $notaId . '. URL=' . $url . ' HTTP=' . $status . ' Error=' . $error . ' Body=' . substr((string) $body, 0, 300));
+            continue;
+        }
+
+        $json = json_decode((string) $body, true);
+        if (is_array($json) && array_key_exists('ok', $json) && $json['ok'] !== true) {
+            error_log('[notas_traslado] SGI web rechazo regeneracion de PDF de nota ' . $notaId . '. URL=' . $url . ' Body=' . substr((string) $body, 0, 300));
+            continue;
+        }
+
+        return true;
     }
 
-    curl_setopt_array($curl, [
-        CURLOPT_POST => true,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_CONNECTTIMEOUT => 5,
-        CURLOPT_TIMEOUT => 20,
-        CURLOPT_HTTPHEADER => [
-            'Accept: application/json',
-            'X-API-KEY: ' . $apiKey,
-        ],
-    ]);
+    return false;
+}
 
-    $body = curl_exec($curl);
-    $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
-    $error = curl_error($curl);
-    curl_close($curl);
+function notas_traslado_obtener_pdf_blob(PDO $pdo, string $notaId): string
+{
+    $fileStmt = $pdo->prepare('SELECT FileNota FROM NotasTraslado WHERE Id = :id AND Estado = 1 LIMIT 1');
+    $fileStmt->execute(['id' => $notaId]);
+    return (string) ($fileStmt->fetchColumn() ?: '');
+}
 
-    if ($body === false || $status < 200 || $status >= 300) {
-        error_log('[notas_traslado] Fallo regenerando PDF web de nota ' . $notaId . '. HTTP=' . $status . ' Error=' . $error . ' Body=' . substr((string) $body, 0, 300));
-        return false;
+function notas_traslado_regenerar_y_obtener_pdf(PDO $pdo, array $config, string $notaId): string
+{
+    if (!notas_traslado_solicitar_regeneracion_pdf_web($config, $notaId)) {
+        return '';
     }
 
-    return true;
+    for ($i = 0; $i < 4; $i++) {
+        $pdf = notas_traslado_obtener_pdf_blob($pdo, $notaId);
+        if ($pdf !== '') {
+            return $pdf;
+        }
+
+        usleep(250000);
+    }
+
+    return '';
 }
 
 function notas_traslado_actualizar_estado_y_traza(
@@ -1074,13 +1115,19 @@ function handle_notas_traslado_aprobacion(PDO $pdo, array $config, string $notaI
         );
 
         $pdo->commit();
+        $pdfSize = 0;
         if ($aprobar) {
-            notas_traslado_solicitar_regeneracion_pdf_web($config, $notaId);
+            $pdf = notas_traslado_regenerar_y_obtener_pdf($pdo, $config, $notaId);
+            $pdfSize = strlen($pdf);
         }
 
         json_response([
             'ok' => true,
-            'message' => $aprobar ? 'Nota de Traslado aprobada correctamente.' : 'Nota de Traslado rechazada correctamente.',
+            'message' => $aprobar
+                ? ($pdfSize > 0 ? 'Nota de Traslado aprobada correctamente.' : 'Nota de Traslado aprobada, pero no se pudo generar el PDF.')
+                : 'Nota de Traslado rechazada correctamente.',
+            'pdfGenerado' => !$aprobar || $pdfSize > 0,
+            'pdfSize' => $pdfSize,
         ], 200, $config);
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
@@ -1125,15 +1172,10 @@ function handle_notas_traslado_regenerar_pdf(PDO $pdo, array $config, string $no
         return;
     }
 
-    $generado = notas_traslado_solicitar_regeneracion_pdf_web($config, $notaId);
-    if ($generado) {
-        $fileStmt = $pdo->prepare('SELECT OCTET_LENGTH(FileNota) FROM NotasTraslado WHERE Id = :id AND Estado = 1 LIMIT 1');
-        $fileStmt->execute(['id' => $notaId]);
-        $fileSize = (int) ($fileStmt->fetchColumn() ?: 0);
-        if ($fileSize > 0) {
-            json_response(['ok' => true, 'message' => 'PDF generado correctamente.'], 200, $config);
-            return;
-        }
+    $pdf = notas_traslado_regenerar_y_obtener_pdf($pdo, $config, $notaId);
+    if ($pdf !== '') {
+        json_response(['ok' => true, 'message' => 'PDF generado correctamente.', 'pdfSize' => strlen($pdf)], 200, $config);
+        return;
     }
 
     json_response(['message' => 'No se pudo generar el PDF de la Nota de Traslado.'], 500, $config);
@@ -1188,9 +1230,7 @@ function handle_notas_traslado_documento(PDO $pdo, array $config, string $notaId
         return;
     }
 
-    $fileStmt = $pdo->prepare('SELECT FileNota FROM NotasTraslado WHERE Id = :id AND Estado = 1 LIMIT 1');
-    $fileStmt->execute(['id' => $notaId]);
-    $pdf = (string) ($fileStmt->fetchColumn() ?: '');
+    $pdf = notas_traslado_obtener_pdf_blob($pdo, $notaId);
     if ($pdf === '') {
         if ($esDestinoEmpleado && $statusNota === NT_STATUS_PENDIENTE_APROBACION && $puedeVerPendienteAprobacion) {
             $detStmt = $pdo->prepare(
@@ -1203,11 +1243,9 @@ function handle_notas_traslado_documento(PDO $pdo, array $config, string $notaId
             $detalles = $detStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
             $pdf = notas_traslado_pdf_build($nota, $detalles);
         } else {
-            notas_traslado_solicitar_regeneracion_pdf_web($config, $notaId);
-            $fileStmt->execute(['id' => $notaId]);
-            $pdf = (string) ($fileStmt->fetchColumn() ?: '');
+            $pdf = notas_traslado_regenerar_y_obtener_pdf($pdo, $config, $notaId);
             if ($pdf === '') {
-                json_response(['message' => 'La Nota de Traslado no tiene archivo PDF generado. Intente nuevamente en unos segundos.'], 404, $config);
+                json_response(['message' => 'No se pudo generar el PDF de la Nota de Traslado desde la API.'], 500, $config);
                 return;
             }
         }
