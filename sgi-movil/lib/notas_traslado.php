@@ -613,8 +613,8 @@ function notas_traslado_pdf_build(array $nota, array $detalles): string
     notas_traslado_pdf_rect($content, 238, 681, 115, 115, '0.82 0.84 0.86', '1 1 1');
     notas_traslado_pdf_qr($content, 251, 784, (string) $nota['Id'], 2.7);
     if (in_array('ImQrIcon', $imageNames, true)) {
-        notas_traslado_pdf_circle($content, 295.5, 739.45, 9);
-        notas_traslado_pdf_image($content, 'ImQrIcon', 289, 733.2, 13, 12.5);
+        notas_traslado_pdf_circle($content, 295.5, 739.45, 10);
+        notas_traslado_pdf_image($content, 'ImQrIcon', 288.25, 732.2, 14.5, 14.5);
     }
 
     notas_traslado_pdf_text_right($content, 555, 780, 'NOTA DE TRASLADO', 17, true, '0.05 0.24 0.52');
