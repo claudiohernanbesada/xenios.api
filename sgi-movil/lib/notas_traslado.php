@@ -217,6 +217,37 @@ function notas_traslado_pdf_text(string &$content, float $x, float $y, string $t
     );
 }
 
+function notas_traslado_pdf_text_width(string $text, int $size, bool $bold = false): float
+{
+    if (function_exists('iconv')) {
+        $converted = @iconv('UTF-8', 'Windows-1252//TRANSLIT', $text);
+        if (is_string($converted)) {
+            $text = $converted;
+        }
+    }
+
+    $units = 0.0;
+    foreach (str_split($text) as $char) {
+        $units += match (true) {
+            $char === ' ' => 0.278,
+            str_contains("ilI.,:;!'|", $char) => 0.278,
+            str_contains('frtJj', $char) => 0.36,
+            str_contains('mwMW', $char) => 0.84,
+            ctype_upper($char) => 0.68,
+            ctype_digit($char) => 0.56,
+            default => 0.52,
+        };
+    }
+
+    return $units * $size * ($bold ? 1.02 : 1.0);
+}
+
+function notas_traslado_pdf_text_right(string &$content, float $right, float $y, string $text, int $size = 10, bool $bold = false, string $rgb = '0 0 0'): void
+{
+    $x = max(32, $right - notas_traslado_pdf_text_width($text, $size, $bold));
+    notas_traslado_pdf_text($content, $x, $y, $text, $size, $bold, $rgb);
+}
+
 function notas_traslado_pdf_rect(string &$content, float $x, float $y, float $w, float $h, string $stroke = '0.82 0.84 0.86', string $fill = ''): void
 {
     if ($fill !== '') {
@@ -270,6 +301,41 @@ function notas_traslado_pdf_jpeg_resource(string $name, ?string $path): ?array
 function notas_traslado_pdf_image(string &$content, string $name, float $x, float $y, float $w, float $h): void
 {
     $content .= sprintf("q %.2F 0 0 %.2F %.2F %.2F cm /%s Do Q\n", $w, $h, $x, $y, $name);
+}
+
+function notas_traslado_pdf_circle(string &$content, float $centerX, float $centerY, float $radius, string $fill = '1 1 1'): void
+{
+    $k = 0.5522847498 * $radius;
+    $content .= sprintf(
+        "%s rg %.2F %.2F m %.2F %.2F %.2F %.2F %.2F %.2F c %.2F %.2F %.2F %.2F %.2F %.2F c %.2F %.2F %.2F %.2F %.2F %.2F c %.2F %.2F %.2F %.2F %.2F %.2F c f\n0 0 0 rg\n",
+        $fill,
+        $centerX + $radius,
+        $centerY,
+        $centerX + $radius,
+        $centerY + $k,
+        $centerX + $k,
+        $centerY + $radius,
+        $centerX,
+        $centerY + $radius,
+        $centerX - $k,
+        $centerY + $radius,
+        $centerX - $radius,
+        $centerY + $k,
+        $centerX - $radius,
+        $centerY,
+        $centerX - $radius,
+        $centerY - $k,
+        $centerX - $k,
+        $centerY - $radius,
+        $centerX,
+        $centerY - $radius,
+        $centerX + $k,
+        $centerY - $radius,
+        $centerX + $radius,
+        $centerY - $k,
+        $centerX + $radius,
+        $centerY
+    );
 }
 
 function notas_traslado_qr_gf_tables(): array
@@ -471,21 +537,25 @@ function notas_traslado_qr_matrix(string $text): array
     }
 
     $format = notas_traslado_qr_format_bits();
-    for ($i = 0; $i < 6; $i++) {
-        $matrix[8][$i] = (($format >> $i) & 1) === 1;
+    for ($i = 0; $i < 15; $i++) {
+        $dark = (($format >> $i) & 1) === 1;
+        if ($i < 6) {
+            $matrix[$i][8] = $dark;
+        } elseif ($i < 8) {
+            $matrix[$i + 1][8] = $dark;
+        } else {
+            $matrix[$size - 15 + $i][8] = $dark;
+        }
+
+        if ($i < 8) {
+            $matrix[8][$size - $i - 1] = $dark;
+        } elseif ($i === 8) {
+            $matrix[8][8] = $dark;
+        } else {
+            $matrix[8][14 - $i] = $dark;
+        }
     }
-    $matrix[8][7] = (($format >> 6) & 1) === 1;
-    $matrix[8][8] = (($format >> 7) & 1) === 1;
-    $matrix[7][8] = (($format >> 8) & 1) === 1;
-    for ($i = 9; $i < 15; $i++) {
-        $matrix[14 - $i][8] = (($format >> $i) & 1) === 1;
-    }
-    for ($i = 0; $i < 8; $i++) {
-        $matrix[$size - 1 - $i][8] = (($format >> $i) & 1) === 1;
-    }
-    for ($i = 8; $i < 15; $i++) {
-        $matrix[8][$size - 15 + $i] = (($format >> $i) & 1) === 1;
-    }
+    $matrix[$size - 8][8] = true;
 
     return $matrix;
 }
@@ -524,30 +594,38 @@ function notas_traslado_pdf_build(array $nota, array $detalles): string
             $assetsDir . '/certificacion.jpg',
             dirname(__DIR__, 2) . '/img/certificacion.jpg',
         ])),
+        notas_traslado_pdf_jpeg_resource('ImQrIcon', notas_traslado_first_existing_file([
+            $assetsDir . '/IconRAEImini.jpg',
+            dirname(__DIR__, 2) . '/img/IconRAEImini.jpg',
+        ])),
     ]));
     $imageNames = array_column($images, 'name');
 
     if (in_array('ImLogo', $imageNames, true)) {
-        notas_traslado_pdf_image($content, 'ImLogo', 40, 722, 150, 56);
+        notas_traslado_pdf_image($content, 'ImLogo', 40, 724, 150, 72.58);
     } else {
-        notas_traslado_pdf_text($content, 40, 760, 'RAEI', 26, true, '0.05 0.24 0.52');
+        notas_traslado_pdf_text($content, 40, 770, 'RAEI', 26, true, '0.05 0.24 0.52');
     }
-    notas_traslado_pdf_text($content, 40, 710, 'METALURGICA RAEI S.A.', 11, true);
-    notas_traslado_pdf_text($content, 40, 696, 'CUIT: 30-51663575-0');
-    notas_traslado_pdf_text($content, 40, 682, 'IVA RESPONSABLE INSCRIPTO');
+    notas_traslado_pdf_text($content, 40, 708, 'METALURGICA RAEI S.A.', 11, true);
+    notas_traslado_pdf_text($content, 40, 693, 'CUIT: 30-51663575-0');
+    notas_traslado_pdf_text($content, 40, 678, 'IVA RESPONSABLE INSCRIPTO');
 
-    notas_traslado_pdf_rect($content, 238, 682, 115, 115, '0.82 0.84 0.86', '1 1 1');
-    notas_traslado_pdf_qr($content, 246, 790, (string) $nota['Id'], 3.0);
+    notas_traslado_pdf_rect($content, 238, 681, 115, 115, '0.82 0.84 0.86', '1 1 1');
+    notas_traslado_pdf_qr($content, 251, 784, (string) $nota['Id'], 2.7);
+    if (in_array('ImQrIcon', $imageNames, true)) {
+        notas_traslado_pdf_circle($content, 295.5, 739.45, 9);
+        notas_traslado_pdf_image($content, 'ImQrIcon', 289, 733.2, 13, 12.5);
+    }
 
-    notas_traslado_pdf_text($content, 380, 760, 'NOTA DE TRASLADO', 20, true, '0.05 0.24 0.52');
-    notas_traslado_pdf_text($content, 430, 738, 'Nro. ' . (string) $nota['NumeroNota'], 13, true, '0.05 0.24 0.52');
-    notas_traslado_pdf_text($content, 398, 722, 'Documento no valido como factura', 9, false, '0.35 0.37 0.40');
-    notas_traslado_pdf_text($content, 450, 696, 'Fecha: ' . date('d/m/Y', strtotime((string) $nota['Fecha'])), 10, true);
+    notas_traslado_pdf_text_right($content, 555, 780, 'NOTA DE TRASLADO', 17, true, '0.05 0.24 0.52');
+    notas_traslado_pdf_text_right($content, 555, 754, 'Nro. ' . (string) $nota['NumeroNota'], 13, true, '0.05 0.24 0.52');
+    notas_traslado_pdf_text_right($content, 555, 735, 'Documento no valido como factura', 9, false, '0.35 0.37 0.40');
+    notas_traslado_pdf_text_right($content, 555, 711, 'Fecha: ' . date('d/m/Y', strtotime((string) $nota['Fecha'])), 10, true);
     if (in_array('ImCert', $imageNames, true)) {
-        notas_traslado_pdf_image($content, 'ImCert', 455, 646, 100, 36);
+        notas_traslado_pdf_image($content, 'ImCert', 455, 663, 100, 36.78);
     }
 
-    notas_traslado_pdf_line($content, 32, 668, 563, 668);
+    notas_traslado_pdf_line($content, 32, 653, 563, 653);
 
     $destino = notas_traslado_es_empleado($nota)
         ? 'Empleado'
@@ -555,12 +633,12 @@ function notas_traslado_pdf_build(array $nota, array $detalles): string
         ? ((string) ($nota['EmpresaNombre'] ?? $nota['ReceptorExterno'] ?? 'Externo'))
         : ((string) ($nota['Destino'] ?? '-')));
 
-    notas_traslado_pdf_summary_box($content, 40, 608, 250, 'Origen', (string) ($nota['Origen'] ?? '-'));
-    notas_traslado_pdf_summary_box($content, 305, 608, 250, 'Destino', $destino);
-    notas_traslado_pdf_summary_box($content, 40, 552, 250, 'Envia', (string) ($nota['NombreEnvia'] ?? '-'));
-    notas_traslado_pdf_summary_box($content, 305, 552, 250, 'Recibe', (string) ($nota['NombreRecibe'] ?? '-'));
+    notas_traslado_pdf_summary_box($content, 40, 593, 250, 'Origen', (string) ($nota['Origen'] ?? '-'));
+    notas_traslado_pdf_summary_box($content, 305, 593, 250, 'Destino', $destino);
+    notas_traslado_pdf_summary_box($content, 40, 537, 250, 'Envia', (string) ($nota['NombreEnvia'] ?? '-'));
+    notas_traslado_pdf_summary_box($content, 305, 537, 250, 'Recibe', (string) ($nota['NombreRecibe'] ?? '-'));
 
-    $y = 520.0;
+    $y = 505.0;
     notas_traslado_pdf_rect($content, 40, $y - 24, 515, 24, '0.05 0.24 0.52', '0.05 0.24 0.52');
     notas_traslado_pdf_text($content, 70, $y - 16, 'Cantidad', 10, true, '1 1 1');
     notas_traslado_pdf_text($content, 150, $y - 16, 'Detalle', 10, true, '1 1 1');
