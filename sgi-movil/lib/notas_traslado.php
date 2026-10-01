@@ -508,7 +508,7 @@ function notas_traslado_base_select(): string
                    ua.DepositoId AS UserAddDepositoId,
                    n.StatusNotaTrasladoId, n.TransportistaAsignadoId, n.FechaAsignacionTransporte,
                    o.Nombre AS Origen,
-                   CASE WHEN n.DestinoEmpleado = 1 THEN CONCAT("Empleado: ", COALESCE(CONCAT(pr.Apellido, " ", pr.Nombre), n.NombreRecibe, "-"))
+                   CASE WHEN n.DestinoEmpleado = 1 THEN "Empleado"
                         WHEN n.Externo = 1 THEN COALESCE(e.Nombre, n.ReceptorExterno, "Externo")
                         ELSE COALESCE(d.Nombre, "-") END AS Destino
             FROM NotasTraslado n
@@ -1057,11 +1057,18 @@ function handle_notas_traslado_documento(PDO $pdo, array $config, string $notaId
         return;
     }
 
-    if (
-        (bool) ($nota['DestinoEmpleado'] ?? false)
-        && in_array((int) $nota['StatusNotaTrasladoId'], [NT_STATUS_PENDIENTE_APROBACION, NT_STATUS_RECHAZADA], true)
-    ) {
-        json_response(['message' => 'La Nota de Traslado con destino a empleado debe estar aprobada para visualizar el PDF.'], 409, $config);
+    $statusNota = (int) $nota['StatusNotaTrasladoId'];
+    $esDestinoEmpleado = (bool) ($nota['DestinoEmpleado'] ?? false);
+    $puedeVerPendienteAprobacion = notas_traslado_is_admin($auth['roles'])
+        || notas_traslado_has_role($auth['roles'], 'NOTA_TRASLADO_APROBACION');
+
+    if ($esDestinoEmpleado && $statusNota === NT_STATUS_RECHAZADA) {
+        json_response(['message' => 'La Nota de Traslado con destino a empleado fue rechazada.'], 409, $config);
+        return;
+    }
+
+    if ($esDestinoEmpleado && $statusNota === NT_STATUS_PENDIENTE_APROBACION && !$puedeVerPendienteAprobacion) {
+        json_response(['message' => 'Solo un usuario aprobador puede visualizar el PDF pendiente de aprobación.'], 403, $config);
         return;
     }
 
@@ -1069,8 +1076,20 @@ function handle_notas_traslado_documento(PDO $pdo, array $config, string $notaId
     $fileStmt->execute(['id' => $notaId]);
     $pdf = (string) ($fileStmt->fetchColumn() ?: '');
     if ($pdf === '') {
-        json_response(['message' => 'La Nota de Traslado no tiene archivo PDF generado. Edite y guarde la nota para regenerarlo.'], 404, $config);
-        return;
+        if ($esDestinoEmpleado && $statusNota === NT_STATUS_PENDIENTE_APROBACION && $puedeVerPendienteAprobacion) {
+            $detStmt = $pdo->prepare(
+                'SELECT Cantidad, Detalle
+                 FROM NotaTrasladoDetalle
+                 WHERE IdNotaTraslado = :id AND Estado = 1
+                 ORDER BY Id'
+            );
+            $detStmt->execute(['id' => $notaId]);
+            $detalles = $detStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            $pdf = notas_traslado_pdf_build($nota, $detalles);
+        } else {
+            json_response(['message' => 'La Nota de Traslado no tiene archivo PDF generado. Edite y guarde la nota para regenerarlo.'], 404, $config);
+            return;
+        }
     }
 
     $fileName = 'NotaTraslado_' . preg_replace('/[^A-Za-z0-9._-]+/', '_', (string) $nota['NumeroNota']) . '.pdf';

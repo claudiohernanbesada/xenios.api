@@ -74,8 +74,8 @@ function push_native_build_novedad_messages(
         $messages[] = [
             'token' => $token,
             'plataforma' => $plataforma,
-            'title' => 'SGI - RAEI',
-            'body' => 'Tiene novedades pendientes de lectura',
+            'title' => $titulo !== '' ? $titulo : 'SGI - RAEI',
+            'body' => $cuerpo !== '' ? $cuerpo : 'Tiene novedades pendientes de lectura',
             'channelId' => 'novedades',
             'data' => [
                 'novedadId' => $novedadId,
