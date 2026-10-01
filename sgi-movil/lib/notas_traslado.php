@@ -542,22 +542,51 @@ function notas_traslado_obtener_pdf_blob(PDO $pdo, string $notaId): string
     return (string) ($fileStmt->fetchColumn() ?: '');
 }
 
-function notas_traslado_regenerar_y_obtener_pdf(PDO $pdo, array $config, string $notaId): string
+function notas_traslado_generar_pdf_api(PDO $pdo, string $notaId): string
 {
-    if (!notas_traslado_solicitar_regeneracion_pdf_web($config, $notaId)) {
+    $stmt = $pdo->prepare(notas_traslado_base_select() . ' WHERE n.Id = :id AND n.Estado = 1 LIMIT 1');
+    $stmt->execute(['id' => $notaId]);
+    $nota = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$nota) {
         return '';
     }
 
-    for ($i = 0; $i < 4; $i++) {
-        $pdf = notas_traslado_obtener_pdf_blob($pdo, $notaId);
-        if ($pdf !== '') {
-            return $pdf;
-        }
+    $detStmt = $pdo->prepare(
+        'SELECT Cantidad, Detalle
+         FROM NotaTrasladoDetalle
+         WHERE IdNotaTraslado = :id AND Estado = 1
+         ORDER BY Id'
+    );
+    $detStmt->execute(['id' => $notaId]);
+    $detalles = $detStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-        usleep(250000);
+    $pdf = notas_traslado_pdf_build($nota, $detalles);
+    if ($pdf === '') {
+        return '';
     }
 
-    return '';
+    $upd = $pdo->prepare('UPDATE NotasTraslado SET FileNota = :pdf WHERE Id = :id AND Estado = 1');
+    $upd->bindValue('pdf', $pdf, PDO::PARAM_LOB);
+    $upd->bindValue('id', $notaId);
+    $upd->execute();
+
+    return $pdf;
+}
+
+function notas_traslado_regenerar_y_obtener_pdf(PDO $pdo, array $config, string $notaId): string
+{
+    if (notas_traslado_solicitar_regeneracion_pdf_web($config, $notaId)) {
+        for ($i = 0; $i < 4; $i++) {
+            $pdf = notas_traslado_obtener_pdf_blob($pdo, $notaId);
+            if ($pdf !== '') {
+                return $pdf;
+            }
+
+            usleep(250000);
+        }
+    }
+
+    return notas_traslado_generar_pdf_api($pdo, $notaId);
 }
 
 function notas_traslado_actualizar_estado_y_traza(
