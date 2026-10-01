@@ -680,7 +680,7 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
     }
 
     if (!$mostrarTodos) {
-        $where[] = 'n.StatusNotaTrasladoId <> ' . NT_STATUS_ANULADA;
+        $where[] = 'n.StatusNotaTrasladoId NOT IN (' . NT_STATUS_RECIBIDA . ', ' . NT_STATUS_ANULADA . ')';
     }
 
     if (!$isAdmin) {
