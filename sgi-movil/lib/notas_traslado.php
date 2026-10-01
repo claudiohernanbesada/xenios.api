@@ -231,6 +231,277 @@ function notas_traslado_pdf_line(string &$content, float $x1, float $y1, float $
     $content .= sprintf("%s RG %.2F w %.2F %.2F m %.2F %.2F l S\n0 0 0 RG\n", $stroke, 0.8, $x1, $y1, $x2, $y2);
 }
 
+function notas_traslado_first_existing_file(array $paths): ?string
+{
+    foreach ($paths as $path) {
+        $path = trim((string) $path);
+        if ($path !== '' && is_file($path)) {
+            return $path;
+        }
+    }
+
+    return null;
+}
+
+function notas_traslado_pdf_jpeg_resource(string $name, ?string $path): ?array
+{
+    if ($path === null || !is_file($path)) {
+        return null;
+    }
+
+    $info = @getimagesize($path);
+    if (!is_array($info) || ($info[2] ?? null) !== IMAGETYPE_JPEG) {
+        return null;
+    }
+
+    $data = @file_get_contents($path);
+    if (!is_string($data) || $data === '') {
+        return null;
+    }
+
+    return [
+        'name' => $name,
+        'width' => (int) $info[0],
+        'height' => (int) $info[1],
+        'data' => $data,
+    ];
+}
+
+function notas_traslado_pdf_image(string &$content, string $name, float $x, float $y, float $w, float $h): void
+{
+    $content .= sprintf("q %.2F 0 0 %.2F %.2F %.2F cm /%s Do Q\n", $w, $h, $x, $y, $name);
+}
+
+function notas_traslado_qr_gf_tables(): array
+{
+    static $tables = null;
+    if ($tables !== null) {
+        return $tables;
+    }
+
+    $exp = array_fill(0, 512, 0);
+    $log = array_fill(0, 256, 0);
+    $x = 1;
+    for ($i = 0; $i < 255; $i++) {
+        $exp[$i] = $x;
+        $log[$x] = $i;
+        $x <<= 1;
+        if ($x & 0x100) {
+            $x ^= 0x11D;
+        }
+    }
+    for ($i = 255; $i < 512; $i++) {
+        $exp[$i] = $exp[$i - 255];
+    }
+
+    return $tables = [$exp, $log];
+}
+
+function notas_traslado_qr_gf_mul(int $a, int $b): int
+{
+    if ($a === 0 || $b === 0) {
+        return 0;
+    }
+
+    [$exp, $log] = notas_traslado_qr_gf_tables();
+    return $exp[$log[$a] + $log[$b]];
+}
+
+function notas_traslado_qr_reed_solomon(array $data, int $eccCount): array
+{
+    [$exp] = notas_traslado_qr_gf_tables();
+    $gen = [1];
+    for ($i = 0; $i < $eccCount; $i++) {
+        $next = array_fill(0, count($gen) + 1, 0);
+        foreach ($gen as $j => $coef) {
+            $next[$j] ^= notas_traslado_qr_gf_mul($coef, 1);
+            $next[$j + 1] ^= notas_traslado_qr_gf_mul($coef, $exp[$i]);
+        }
+        $gen = $next;
+    }
+
+    $ecc = array_fill(0, $eccCount, 0);
+    foreach ($data as $byte) {
+        $factor = $byte ^ $ecc[0];
+        array_shift($ecc);
+        $ecc[] = 0;
+        for ($i = 0; $i < $eccCount; $i++) {
+            $ecc[$i] ^= notas_traslado_qr_gf_mul($gen[$i + 1], $factor);
+        }
+    }
+
+    return $ecc;
+}
+
+function notas_traslado_qr_append_bits(array &$bits, int $value, int $length): void
+{
+    for ($i = $length - 1; $i >= 0; $i--) {
+        $bits[] = (($value >> $i) & 1) === 1;
+    }
+}
+
+function notas_traslado_qr_set(array &$matrix, array &$reserved, int $row, int $col, bool $dark): void
+{
+    $matrix[$row][$col] = $dark;
+    $reserved[$row][$col] = true;
+}
+
+function notas_traslado_qr_finder(array &$matrix, array &$reserved, int $row, int $col): void
+{
+    for ($r = -1; $r <= 7; $r++) {
+        for ($c = -1; $c <= 7; $c++) {
+            $rr = $row + $r;
+            $cc = $col + $c;
+            if ($rr < 0 || $rr >= 33 || $cc < 0 || $cc >= 33) {
+                continue;
+            }
+            $dark = ($r >= 0 && $r <= 6 && $c >= 0 && $c <= 6)
+                && ($r === 0 || $r === 6 || $c === 0 || $c === 6 || ($r >= 2 && $r <= 4 && $c >= 2 && $c <= 4));
+            notas_traslado_qr_set($matrix, $reserved, $rr, $cc, $dark);
+        }
+    }
+}
+
+function notas_traslado_qr_alignment(array &$matrix, array &$reserved, int $row, int $col): void
+{
+    for ($r = -2; $r <= 2; $r++) {
+        for ($c = -2; $c <= 2; $c++) {
+            $dark = max(abs($r), abs($c)) !== 1;
+            notas_traslado_qr_set($matrix, $reserved, $row + $r, $col + $c, $dark);
+        }
+    }
+}
+
+function notas_traslado_qr_format_bits(): int
+{
+    $data = (1 << 3); // ECC L, mask 0
+    $value = $data << 10;
+    $generator = 0x537;
+    for ($i = 14; $i >= 10; $i--) {
+        if (($value >> $i) & 1) {
+            $value ^= $generator << ($i - 10);
+        }
+    }
+
+    return (($data << 10) | $value) ^ 0x5412;
+}
+
+function notas_traslado_qr_matrix(string $text): array
+{
+    $size = 33; // Version 4-L
+    $matrix = array_fill(0, $size, array_fill(0, $size, false));
+    $reserved = array_fill(0, $size, array_fill(0, $size, false));
+
+    notas_traslado_qr_finder($matrix, $reserved, 0, 0);
+    notas_traslado_qr_finder($matrix, $reserved, 0, $size - 7);
+    notas_traslado_qr_finder($matrix, $reserved, $size - 7, 0);
+    notas_traslado_qr_alignment($matrix, $reserved, 26, 26);
+
+    for ($i = 8; $i < $size - 8; $i++) {
+        notas_traslado_qr_set($matrix, $reserved, 6, $i, $i % 2 === 0);
+        notas_traslado_qr_set($matrix, $reserved, $i, 6, $i % 2 === 0);
+    }
+    notas_traslado_qr_set($matrix, $reserved, 25, 8, true);
+
+    for ($i = 0; $i < 9; $i++) {
+        if ($i !== 6) {
+            $reserved[8][$i] = true;
+            $reserved[$i][8] = true;
+        }
+    }
+    for ($i = 0; $i < 8; $i++) {
+        $reserved[$size - 1 - $i][8] = true;
+        $reserved[8][$size - 1 - $i] = true;
+    }
+
+    $bytes = array_values(unpack('C*', $text) ?: []);
+    $bits = [];
+    notas_traslado_qr_append_bits($bits, 0x4, 4);
+    notas_traslado_qr_append_bits($bits, count($bytes), 8);
+    foreach ($bytes as $byte) {
+        notas_traslado_qr_append_bits($bits, $byte, 8);
+    }
+    $capacityBits = 80 * 8;
+    for ($i = 0; $i < 4 && count($bits) < $capacityBits; $i++) {
+        $bits[] = false;
+    }
+    while (count($bits) % 8 !== 0) {
+        $bits[] = false;
+    }
+
+    $data = [];
+    for ($i = 0; $i < count($bits); $i += 8) {
+        $byte = 0;
+        for ($j = 0; $j < 8; $j++) {
+            $byte = ($byte << 1) | ($bits[$i + $j] ? 1 : 0);
+        }
+        $data[] = $byte;
+    }
+    for ($pad = 0xEC; count($data) < 80; $pad = $pad === 0xEC ? 0x11 : 0xEC) {
+        $data[] = $pad;
+    }
+    $codewords = array_merge($data, notas_traslado_qr_reed_solomon($data, 20));
+    $dataBits = [];
+    foreach ($codewords as $byte) {
+        notas_traslado_qr_append_bits($dataBits, $byte, 8);
+    }
+
+    $bitIndex = 0;
+    $upward = true;
+    for ($col = $size - 1; $col > 0; $col -= 2) {
+        if ($col === 6) {
+            $col--;
+        }
+        for ($i = 0; $i < $size; $i++) {
+            $row = $upward ? $size - 1 - $i : $i;
+            for ($offset = 0; $offset < 2; $offset++) {
+                $cc = $col - $offset;
+                if ($reserved[$row][$cc]) {
+                    continue;
+                }
+                $dark = $dataBits[$bitIndex] ?? false;
+                if (($row + $cc) % 2 === 0) {
+                    $dark = !$dark;
+                }
+                $matrix[$row][$cc] = $dark;
+                $bitIndex++;
+            }
+        }
+        $upward = !$upward;
+    }
+
+    $format = notas_traslado_qr_format_bits();
+    for ($i = 0; $i < 6; $i++) {
+        $matrix[8][$i] = (($format >> $i) & 1) === 1;
+    }
+    $matrix[8][7] = (($format >> 6) & 1) === 1;
+    $matrix[8][8] = (($format >> 7) & 1) === 1;
+    $matrix[7][8] = (($format >> 8) & 1) === 1;
+    for ($i = 9; $i < 15; $i++) {
+        $matrix[14 - $i][8] = (($format >> $i) & 1) === 1;
+    }
+    for ($i = 0; $i < 8; $i++) {
+        $matrix[$size - 1 - $i][8] = (($format >> $i) & 1) === 1;
+    }
+    for ($i = 8; $i < 15; $i++) {
+        $matrix[8][$size - 15 + $i] = (($format >> $i) & 1) === 1;
+    }
+
+    return $matrix;
+}
+
+function notas_traslado_pdf_qr(string &$content, float $x, float $y, string $text, float $module = 3.0): void
+{
+    $matrix = notas_traslado_qr_matrix($text);
+    foreach ($matrix as $row => $cols) {
+        foreach ($cols as $col => $dark) {
+            if ($dark) {
+                $content .= sprintf("0 0 0 rg %.2F %.2F %.2F %.2F re f\n", $x + ($col * $module), $y - (($row + 1) * $module), $module, $module);
+            }
+        }
+    }
+}
+
 function notas_traslado_pdf_summary_box(string &$content, float $x, float $y, float $w, string $title, string $value): void
 {
     notas_traslado_pdf_rect($content, $x, $y, $w, 44);
@@ -243,22 +514,38 @@ function notas_traslado_pdf_build(array $nota, array $detalles): string
     $pages = [];
     $content = '';
     $y = 802.0;
+    $assetsDir = dirname(__DIR__) . '/assets';
+    $images = array_values(array_filter([
+        notas_traslado_pdf_jpeg_resource('ImLogo', notas_traslado_first_existing_file([
+            $assetsDir . '/logoRaei.jpg',
+            dirname(__DIR__, 2) . '/img/logoRaei.jpg',
+        ])),
+        notas_traslado_pdf_jpeg_resource('ImCert', notas_traslado_first_existing_file([
+            $assetsDir . '/certificacion.jpg',
+            dirname(__DIR__, 2) . '/img/certificacion.jpg',
+        ])),
+    ]));
+    $imageNames = array_column($images, 'name');
 
-    notas_traslado_pdf_text($content, 40, 760, 'RAEI', 26, true, '0.05 0.24 0.52');
-    notas_traslado_pdf_text($content, 40, 730, 'METALURGICA RAEI S.A.', 11, true);
-    notas_traslado_pdf_text($content, 40, 716, 'CUIT: 30-51663575-0');
-    notas_traslado_pdf_text($content, 40, 702, 'IVA RESPONSABLE INSCRIPTO');
+    if (in_array('ImLogo', $imageNames, true)) {
+        notas_traslado_pdf_image($content, 'ImLogo', 40, 722, 150, 56);
+    } else {
+        notas_traslado_pdf_text($content, 40, 760, 'RAEI', 26, true, '0.05 0.24 0.52');
+    }
+    notas_traslado_pdf_text($content, 40, 710, 'METALURGICA RAEI S.A.', 11, true);
+    notas_traslado_pdf_text($content, 40, 696, 'CUIT: 30-51663575-0');
+    notas_traslado_pdf_text($content, 40, 682, 'IVA RESPONSABLE INSCRIPTO');
 
     notas_traslado_pdf_rect($content, 238, 682, 115, 115, '0.82 0.84 0.86', '1 1 1');
-    notas_traslado_pdf_text($content, 268, 755, 'QR', 20, true, '0.05 0.24 0.52');
-    notas_traslado_pdf_text($content, 255, 735, 'Nota de Traslado', 8, true);
-    notas_traslado_pdf_text($content, 249, 720, substr((string) $nota['Id'], 0, 18), 7);
-    notas_traslado_pdf_text($content, 249, 708, substr((string) $nota['Id'], 18), 7);
+    notas_traslado_pdf_qr($content, 246, 790, (string) $nota['Id'], 3.0);
 
     notas_traslado_pdf_text($content, 380, 760, 'NOTA DE TRASLADO', 20, true, '0.05 0.24 0.52');
     notas_traslado_pdf_text($content, 430, 738, 'Nro. ' . (string) $nota['NumeroNota'], 13, true, '0.05 0.24 0.52');
     notas_traslado_pdf_text($content, 398, 722, 'Documento no valido como factura', 9, false, '0.35 0.37 0.40');
     notas_traslado_pdf_text($content, 450, 696, 'Fecha: ' . date('d/m/Y', strtotime((string) $nota['Fecha'])), 10, true);
+    if (in_array('ImCert', $imageNames, true)) {
+        notas_traslado_pdf_image($content, 'ImCert', 455, 646, 100, 36);
+    }
 
     notas_traslado_pdf_line($content, 32, 668, 563, 668);
 
@@ -346,13 +633,21 @@ function notas_traslado_pdf_build(array $nota, array $detalles): string
         $pageObjId = 3 + ($index * 2);
         $contentObjId = $pageObjId + 1;
         $kids[] = $pageObjId . ' 0 R';
-        $objects[$pageObjId] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ' . $fontRegularId . ' 0 R /F2 ' . $fontBoldId . ' 0 R >> >> /Contents ' . $contentObjId . ' 0 R >>';
+        $xObjects = [];
+        foreach ($images as $imageIndex => $image) {
+            $xObjects[] = '/' . $image['name'] . ' ' . ($fontBoldId + 1 + $imageIndex) . ' 0 R';
+        }
+        $xObjectResource = $xObjects !== [] ? ' /XObject << ' . implode(' ', $xObjects) . ' >>' : '';
+        $objects[$pageObjId] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ' . $fontRegularId . ' 0 R /F2 ' . $fontBoldId . ' 0 R >>' . $xObjectResource . ' >> /Contents ' . $contentObjId . ' 0 R >>';
         $objects[$contentObjId] = '<< /Length ' . strlen($stream) . " >>\nstream\n" . $stream . "endstream";
     }
 
     $objects[2] = '<< /Type /Pages /Count ' . $pageCount . ' /Kids [' . implode(' ', $kids) . '] >>';
     $objects[$fontRegularId] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
     $objects[$fontBoldId] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+    foreach ($images as $imageIndex => $image) {
+        $objects[$fontBoldId + 1 + $imageIndex] = '<< /Type /XObject /Subtype /Image /Width ' . $image['width'] . ' /Height ' . $image['height'] . ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' . strlen($image['data']) . " >>\nstream\n" . $image['data'] . "\nendstream";
+    }
     ksort($objects);
 
     $pdf = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
@@ -575,17 +870,6 @@ function notas_traslado_generar_pdf_api(PDO $pdo, string $notaId): string
 
 function notas_traslado_regenerar_y_obtener_pdf(PDO $pdo, array $config, string $notaId): string
 {
-    if (notas_traslado_solicitar_regeneracion_pdf_web($config, $notaId)) {
-        for ($i = 0; $i < 4; $i++) {
-            $pdf = notas_traslado_obtener_pdf_blob($pdo, $notaId);
-            if ($pdf !== '') {
-                return $pdf;
-            }
-
-            usleep(250000);
-        }
-    }
-
     return notas_traslado_generar_pdf_api($pdo, $notaId);
 }
 
