@@ -279,6 +279,19 @@ function notas_traslado_pdf_build(array $nota, array $detalles): string
         $y = $rowTop - $rowHeight;
     }
 
+    if ((bool) $nota['Externo']) {
+        $y -= 18;
+        notas_traslado_pdf_rect($content, 40, $y - 118, 515, 112);
+        notas_traslado_pdf_text($content, 52, $y - 24, 'Recepcion externa', 10, true, '0.35 0.37 0.40');
+        notas_traslado_pdf_line($content, 70, $y - 88, 200, $y - 88, '0.25 0.25 0.25');
+        notas_traslado_pdf_line($content, 235, $y - 88, 365, $y - 88, '0.25 0.25 0.25');
+        notas_traslado_pdf_line($content, 400, $y - 88, 530, $y - 88, '0.25 0.25 0.25');
+        notas_traslado_pdf_text($content, 92, $y - 104, 'Fecha de Recepcion', 8, false, '0.35 0.37 0.40');
+        notas_traslado_pdf_text($content, 265, $y - 104, 'Firma del Receptor', 8, false, '0.35 0.37 0.40');
+        notas_traslado_pdf_text($content, 446, $y - 104, 'Aclaracion', 8, false, '0.35 0.37 0.40');
+        $y -= 130;
+    }
+
     $autorizante = trim((string) ($nota['UsuarioAprobacionNombre'] ?? ''));
     if ($autorizante !== '') {
         if ($y < 90) {
@@ -290,18 +303,6 @@ function notas_traslado_pdf_build(array $nota, array $detalles): string
         $y -= 18;
         notas_traslado_pdf_text($content, 40, $y, 'Autorizado por: ' . $autorizante, 10, true);
         $y -= 12;
-    }
-
-    if ((bool) $nota['Externo']) {
-        $y -= 18;
-        notas_traslado_pdf_rect($content, 40, $y - 118, 515, 112);
-        notas_traslado_pdf_text($content, 52, $y - 24, 'Recepcion externa', 10, true, '0.35 0.37 0.40');
-        notas_traslado_pdf_line($content, 70, $y - 88, 200, $y - 88, '0.25 0.25 0.25');
-        notas_traslado_pdf_line($content, 235, $y - 88, 365, $y - 88, '0.25 0.25 0.25');
-        notas_traslado_pdf_line($content, 400, $y - 88, 530, $y - 88, '0.25 0.25 0.25');
-        notas_traslado_pdf_text($content, 92, $y - 104, 'Fecha de Recepcion', 8, false, '0.35 0.37 0.40');
-        notas_traslado_pdf_text($content, 265, $y - 104, 'Firma del Receptor', 8, false, '0.35 0.37 0.40');
-        notas_traslado_pdf_text($content, 446, $y - 104, 'Aclaracion', 8, false, '0.35 0.37 0.40');
     }
 
     notas_traslado_pdf_line($content, 32, 58, 563, 58, '0.88 0.89 0.90');
