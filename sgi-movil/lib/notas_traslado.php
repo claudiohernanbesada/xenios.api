@@ -237,7 +237,7 @@ function notas_traslado_pdf_build(array $nota, array $detalles): string
     notas_traslado_pdf_line($content, 32, 668, 563, 668);
 
     $destino = (bool) ($nota['DestinoEmpleado'] ?? false)
-        ? ('Empleado: ' . (string) ($nota['PersonalRecibeNombre'] ?? $nota['NombreRecibe'] ?? '-'))
+        ? 'Empleado'
         : ((bool) $nota['Externo']
         ? ((string) ($nota['EmpresaNombre'] ?? $nota['ReceptorExterno'] ?? 'Externo'))
         : ((string) ($nota['Destino'] ?? '-')));
@@ -993,22 +993,6 @@ function handle_notas_traslado_aprobacion(PDO $pdo, array $config, string $notaI
             ],
             ($aprobar ? 'Aprobacion' : 'Rechazo') . ' Nota de Traslado a Empleado: ' . (string) $nota['NumeroNota']
         );
-
-        if ($aprobar) {
-            $detStmt = $pdo->prepare(
-                'SELECT Cantidad, Detalle
-                 FROM NotaTrasladoDetalle
-                 WHERE IdNotaTraslado = :id AND Estado = 1
-                 ORDER BY Id'
-            );
-            $detStmt->execute(['id' => $notaId]);
-            $detalles = $detStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-            $nota['StatusNotaTrasladoId'] = NT_STATUS_GENERADA;
-            $nota['UsuarioAprobacionNombre'] = trim((string) ($auth['user']['Nombre'] ?? '') . ' ' . (string) ($auth['user']['Apellido'] ?? ''));
-            $pdf = notas_traslado_pdf_build($nota, $detalles);
-            $fileStmt = $pdo->prepare('UPDATE NotasTraslado SET FileNota = :pdf WHERE Id = :id AND Estado = 1');
-            $fileStmt->execute(['pdf' => $pdf, 'id' => $notaId]);
-        }
 
         $pdo->commit();
         json_response([
