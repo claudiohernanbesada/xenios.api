@@ -679,6 +679,10 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
         $params['hasta'] = $hasta;
     }
 
+    if (!$mostrarTodos) {
+        $where[] = 'n.StatusNotaTrasladoId <> ' . NT_STATUS_ANULADA;
+    }
+
     if (!$isAdmin) {
         $visibility = [$mostrarTodos
             ? 'n.UserAdd = :usuarioId'
