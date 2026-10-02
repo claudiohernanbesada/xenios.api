@@ -40,6 +40,19 @@ function notas_traslado_es_interno(array $nota): bool
     return notas_traslado_tipo_envio($nota) === NT_TIPO_ENVIO_INTERNO;
 }
 
+function notas_traslado_requiere_autorizacion(array $nota): bool
+{
+    $tipoEnvio = notas_traslado_tipo_envio($nota);
+    return $tipoEnvio === NT_TIPO_ENVIO_EMPLEADO
+        || ($tipoEnvio === NT_TIPO_ENVIO_EXTERNO && (int) ($nota['EmpresaFrecuente'] ?? 0) !== 1);
+}
+
+function notas_traslado_tiene_autorizacion_valida(array $nota): bool
+{
+    return trim((string) ($nota['UsuarioAprobacionId'] ?? '')) !== ''
+        && trim((string) ($nota['FechaAprobacion'] ?? '')) !== '';
+}
+
 function notas_traslado_has_role(array $roles, string $roleName): bool
 {
     if (function_exists('user_has_role_name')) {
@@ -1263,6 +1276,15 @@ function handle_notas_traslado_scan(PDO $pdo, array $config): void
         $isAdmin = notas_traslado_is_admin($roles);
         $mismaSucursalOrigen = $depositoId !== ''
             && strtolower((string) $nota['UserAddDepositoId']) === strtolower($depositoId);
+
+        if (notas_traslado_requiere_autorizacion($nota) && !notas_traslado_tiene_autorizacion_valida($nota)) {
+            $pdo->rollBack();
+            json_response([
+                'ok' => false,
+                'message' => 'La Nota de Traslado requiere autorización antes de continuar con el proceso.',
+            ], 409, $config);
+            return;
+        }
 
         if ($isSeguridad && $status === NT_STATUS_EN_TRANSITO && $mismaSucursalOrigen) {
             $trazaStmt = $pdo->prepare(
