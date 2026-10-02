@@ -15,7 +15,7 @@ const NT_STATUS_RECHAZADA = 9;
 const NT_TIPO_ENVIO_INTERNO = 'interno';
 const NT_TIPO_ENVIO_EXTERNO = 'externo';
 const NT_TIPO_ENVIO_EMPLEADO = 'empleado';
-const NT_PDF_LAYOUT_MARKER = 'NT_PDF_LAYOUT_BULTOS_CARD_V1';
+const NT_PDF_LAYOUT_MARKER = 'NT_PDF_LAYOUT_BULTOS_CARD_V2';
 
 function notas_traslado_tipo_envio(array $nota): string
 {
@@ -661,7 +661,7 @@ function notas_traslado_pdf_build(array $nota, array $detalles): string
     notas_traslado_pdf_summary_box($content, 40, 537, 250, 'Envia', (string) ($nota['NombreEnvia'] ?? '-'));
     notas_traslado_pdf_summary_box($content, 305, 537, 250, 'Recibe', (string) ($nota['NombreRecibe'] ?? '-'));
 
-    notas_traslado_pdf_packages_box($content, 40, 481, 515, (int) ($nota['CantidadBultos'] ?? 1));
+    notas_traslado_pdf_packages_box($content, 305, 481, 250, (int) ($nota['CantidadBultos'] ?? 1));
 
     $y = 469.0;
     notas_traslado_pdf_rect($content, 40, $y - 24, 515, 24, '0.05 0.24 0.52', '0.05 0.24 0.52');
