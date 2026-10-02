@@ -1,5 +1,3 @@
 <FilesMatch "^\.env">
     Require all denied
 </FilesMatch>
-
-RedirectMatch 403 ^/_NOTA-TRASLADO(/.*)?$

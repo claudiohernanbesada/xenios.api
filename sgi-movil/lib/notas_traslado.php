@@ -1673,6 +1673,96 @@ function handle_notas_traslado_documento(PDO $pdo, array $config, string $notaId
     exit;
 }
 
+function handle_notas_traslado_documento_firmado(PDO $pdo, array $config, string $notaId): void
+{
+    $auth = notas_traslado_require_auth($pdo, $config);
+    notas_traslado_require_role($auth['roles'], $config);
+
+    $notaId = notas_traslado_extract_id($notaId);
+    if ($notaId === '') {
+        json_response(['message' => 'Nota de Traslado no válida'], 400, $config);
+        return;
+    }
+
+    $usuarioId = (string) $auth['user']['Id'];
+    $usuarioMail = (string) ($auth['user']['Mail'] ?? '');
+    $depositoId = (string) ($auth['user']['DepositoId'] ?? '');
+
+    $stmt = $pdo->prepare(notas_traslado_base_select() . ' WHERE n.Id = :id AND n.Estado = 1 LIMIT 1');
+    $stmt->execute(['id' => $notaId]);
+    $nota = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$nota) {
+        json_response(['message' => 'Nota de Traslado no encontrada'], 404, $config);
+        return;
+    }
+
+    $mismoDepositoOrigen = $depositoId !== ''
+        && strtolower((string) ($nota['UserAddDepositoId'] ?? '')) === strtolower($depositoId);
+    $puedeConsultar = notas_traslado_puede_ver($nota, $auth['roles'], $usuarioId, $depositoId, $usuarioMail)
+        || (notas_traslado_has_role($auth['roles'], 'NOTA_TRASLADO_DESPACHO') && $mismoDepositoOrigen)
+        || (notas_traslado_has_role($auth['roles'], 'NOTA_TRASLADO_APROBACION') && notas_traslado_es_empleado($nota));
+    if (!$puedeConsultar) {
+        json_response(['message' => 'Sin permisos para visualizar la copia firmada'], 403, $config);
+        return;
+    }
+
+    $documentoId = trim((string) ($nota['DocumentoFirmado'] ?? ''));
+    $nombreSeguro = basename($documentoId);
+    if ($nombreSeguro === '' || $nombreSeguro !== $documentoId) {
+        json_response(['message' => 'La Nota de Traslado no tiene una copia firmada válida'], 404, $config);
+        return;
+    }
+
+    $blobStmt = $pdo->prepare('SELECT FileNotaFirmada FROM NotasTraslado WHERE Id = :id AND Estado = 1 LIMIT 1');
+    $blobStmt->execute(['id' => $notaId]);
+    $blobValue = $blobStmt->fetchColumn();
+    if (is_resource($blobValue)) {
+        $blobValue = stream_get_contents($blobValue);
+    }
+    $blob = is_string($blobValue) ? $blobValue : '';
+    if ($blob === '') {
+        json_response(['message' => 'No se encontró la copia firmada'], 404, $config);
+        return;
+    }
+
+    $extension = strtolower(pathinfo($nombreSeguro, PATHINFO_EXTENSION));
+    $mimePorExtension = match ($extension) {
+        'pdf' => 'application/pdf',
+        'jpg', 'jpeg' => 'image/jpeg',
+        'png' => 'image/png',
+        default => 'application/octet-stream',
+    };
+    $mime = $mimePorExtension;
+    if (function_exists('finfo_open')) {
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        if ($finfo !== false) {
+            $detectado = finfo_buffer($finfo, $blob);
+            finfo_close($finfo);
+            if (is_string($detectado) && $detectado !== '') {
+                $mime = $detectado;
+            }
+        }
+    }
+
+    if (!in_array($mime, ['application/pdf', 'image/jpeg', 'image/png'], true)) {
+        json_response(['message' => 'Tipo de copia firmada no permitido'], 400, $config);
+        return;
+    }
+
+    $numeroSeguro = preg_replace('/[^A-Za-z0-9._-]+/', '_', (string) $nota['NumeroNota']);
+    $fileName = 'NotaTraslado_' . $numeroSeguro . '_firmada' . ($extension !== '' ? '.' . $extension : '');
+
+    apply_cors($config);
+    header('Content-Type: ' . $mime);
+    header('Content-Disposition: attachment; filename="' . $fileName . '"');
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+    header('Content-Length: ' . (string) strlen($blob));
+    echo $blob;
+    exit;
+}
+
 function handle_notas_traslado_routes(PDO $pdo, array $config, string $path, string $method): bool
 {
     if ($method === 'GET' && $path === '/notas-traslado') {
@@ -1712,6 +1802,11 @@ function handle_notas_traslado_routes(PDO $pdo, array $config, string $path, str
 
     if ($method === 'GET' && preg_match('#^/notas-traslado/([^/]+)/documento$#', $path, $m)) {
         handle_notas_traslado_documento($pdo, $config, $m[1]);
+        return true;
+    }
+
+    if ($method === 'GET' && preg_match('#^/notas-traslado/([^/]+)/documento-firmado$#', $path, $m)) {
+        handle_notas_traslado_documento_firmado($pdo, $config, $m[1]);
         return true;
     }
 
