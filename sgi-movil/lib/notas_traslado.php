@@ -440,7 +440,7 @@ function notas_traslado_qr_alignment(array &$matrix, array &$reserved, int $row,
 
 function notas_traslado_qr_format_bits(): int
 {
-    $data = (1 << 3); // ECC L, mask 0
+    $data = (3 << 3); // ECC Q, mask 0
     $value = $data << 10;
     $generator = 0x537;
     for ($i = 14; $i >= 10; $i--) {
@@ -454,7 +454,7 @@ function notas_traslado_qr_format_bits(): int
 
 function notas_traslado_qr_matrix(string $text): array
 {
-    $size = 33; // Version 4-L
+    $size = 33; // Version 4-Q
     $matrix = array_fill(0, $size, array_fill(0, $size, false));
     $reserved = array_fill(0, $size, array_fill(0, $size, false));
 
@@ -487,7 +487,7 @@ function notas_traslado_qr_matrix(string $text): array
     foreach ($bytes as $byte) {
         notas_traslado_qr_append_bits($bits, $byte, 8);
     }
-    $capacityBits = 80 * 8;
+    $capacityBits = 48 * 8;
     for ($i = 0; $i < 4 && count($bits) < $capacityBits; $i++) {
         $bits[] = false;
     }
@@ -503,10 +503,24 @@ function notas_traslado_qr_matrix(string $text): array
         }
         $data[] = $byte;
     }
-    for ($pad = 0xEC; count($data) < 80; $pad = $pad === 0xEC ? 0x11 : 0xEC) {
+    for ($pad = 0xEC; count($data) < 48; $pad = $pad === 0xEC ? 0x11 : 0xEC) {
         $data[] = $pad;
     }
-    $codewords = array_merge($data, notas_traslado_qr_reed_solomon($data, 20));
+
+    $blocks = [array_slice($data, 0, 24), array_slice($data, 24, 24)];
+    $eccBlocks = [
+        notas_traslado_qr_reed_solomon($blocks[0], 26),
+        notas_traslado_qr_reed_solomon($blocks[1], 26),
+    ];
+    $codewords = [];
+    for ($i = 0; $i < 24; $i++) {
+        $codewords[] = $blocks[0][$i];
+        $codewords[] = $blocks[1][$i];
+    }
+    for ($i = 0; $i < 26; $i++) {
+        $codewords[] = $eccBlocks[0][$i];
+        $codewords[] = $eccBlocks[1][$i];
+    }
     $dataBits = [];
     foreach ($codewords as $byte) {
         notas_traslado_qr_append_bits($dataBits, $byte, 8);
@@ -550,7 +564,7 @@ function notas_traslado_qr_matrix(string $text): array
         if ($i < 8) {
             $matrix[8][$size - $i - 1] = $dark;
         } elseif ($i === 8) {
-            $matrix[8][8] = $dark;
+            $matrix[8][7] = $dark;
         } else {
             $matrix[8][14 - $i] = $dark;
         }
@@ -613,8 +627,8 @@ function notas_traslado_pdf_build(array $nota, array $detalles): string
     notas_traslado_pdf_rect($content, 238, 681, 115, 115, '0.82 0.84 0.86', '1 1 1');
     notas_traslado_pdf_qr($content, 251, 784, (string) $nota['Id'], 2.7);
     if (in_array('ImQrIcon', $imageNames, true)) {
-        notas_traslado_pdf_circle($content, 295.5, 739.45, 10);
-        notas_traslado_pdf_image($content, 'ImQrIcon', 288.25, 732.2, 14.5, 14.5);
+        notas_traslado_pdf_circle($content, 295.5, 739.45, 16);
+        notas_traslado_pdf_image($content, 'ImQrIcon', 282.5, 726.95, 26, 25);
     }
 
     notas_traslado_pdf_text_right($content, 555, 780, 'NOTA DE TRASLADO', 17, true, '0.05 0.24 0.52');
@@ -777,6 +791,9 @@ function notas_traslado_map_row(array $row, array $context = []): array
         'userRecibeId' => $row['UserRecibeId'] !== null ? (string) $row['UserRecibeId'] : null,
         'personalRecibeId' => $row['PersonalRecibeId'] !== null ? (string) $row['PersonalRecibeId'] : null,
         'documentoFirmado' => $row['DocumentoFirmado'] !== null ? (string) $row['DocumentoFirmado'] : null,
+        'aprobada' => $row['UsuarioAprobacionId'] !== null
+            && $row['FechaAprobacion'] !== null
+            && $statusId !== NT_STATUS_RECHAZADA,
         'nombreEnvia' => (string) $row['NombreEnvia'],
         'nombreRecibe' => (string) $row['NombreRecibe'],
         'statusId' => $statusId,
@@ -1008,6 +1025,7 @@ function notas_traslado_base_select(): string
 {
     return 'SELECT n.Id, n.NumeroNota, n.Fecha, n.tipoEnvio AS TipoEnvio, n.OrigenId, n.DestinoId, n.PersonalRecibeId, n.NombreEnvia, n.NombreRecibe, n.UserRecibeId,
                    n.UserAdd, n.ReceptorExterno, n.DocumentoFirmado, ur.Mail AS UserRecibeMail, COALESCE(n.DateMod, n.DateAdd) AS FechaActualizacion,
+                   n.UsuarioAprobacionId, n.FechaAprobacion,
                    CONCAT(COALESCE(um.Nombre, ua.Nombre), " ", COALESCE(um.Apellido, ua.Apellido)) AS UsuarioActualizacion,
                    e.Nombre AS EmpresaNombre,
                    CONCAT(pr.Apellido, " ", pr.Nombre) AS PersonalRecibeNombre,
