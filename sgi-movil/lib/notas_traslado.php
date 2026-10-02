@@ -64,6 +64,7 @@ function notas_traslado_require_role(array $roles, array $config): void
         'NOTA_TRASLADO_DESPACHO',
         'NOTA_TRASLADO_TRANSPORTE',
         'NOTA_TRASLADO_APROBACION',
+        'NOTA_TRASLADO_SEGURIDAD',
         'EMPLEADO',
     ];
     $upper = array_map(static fn ($r) => strtoupper(trim((string) $r)), $roles);
@@ -772,6 +773,7 @@ function notas_traslado_map_row(array $row, array $context = []): array
     $isAdmin = notas_traslado_is_admin($roles);
     $isDespacho = notas_traslado_has_role($roles, 'NOTA_TRASLADO_DESPACHO');
     $isTransporte = notas_traslado_has_role($roles, 'NOTA_TRASLADO_TRANSPORTE');
+    $isSeguridad = notas_traslado_has_role($roles, 'NOTA_TRASLADO_SEGURIDAD');
     $isAprobador = $isAdmin || notas_traslado_has_role($roles, 'NOTA_TRASLADO_APROBACION');
     $mismaSucursalOrigen = $depositoId !== ''
         && strtolower((string) ($row['UserAddDepositoId'] ?? '')) === strtolower($depositoId);
@@ -802,6 +804,12 @@ function notas_traslado_map_row(array $row, array $context = []): array
         'usuarioActualizacion' => trim((string) ($row['UsuarioActualizacion'] ?? '')),
         'transportistaAsignadoId' => $row['TransportistaAsignadoId'] !== null ? (string) $row['TransportistaAsignadoId'] : null,
         'fechaAsignacionTransporte' => $row['FechaAsignacionTransporte'] !== null ? (string) $row['FechaAsignacionTransporte'] : null,
+        'seguridadChequeada' => (int) ($row['SeguridadChequeada'] ?? 0) > 0,
+        'puedeChequearSeguridad' => $statusId === NT_STATUS_EN_TRANSITO
+            && !$isTransporte
+            && (int) ($row['SeguridadChequeada'] ?? 0) === 0
+            && $isSeguridad
+            && $mismaSucursalOrigen,
         'puedeEntregar' => (
             (notas_traslado_es_externo($row) && $statusId === NT_STATUS_EN_TRANSITO && ($isAdmin || ($isTransporte && $esTransportistaAsignado)))
             || (notas_traslado_es_interno($row) && $statusId === NT_STATUS_RECEPCION_SEDE && ($isAdmin || ($isDespacho && strtolower((string) ($row['DestinoId'] ?? '')) === strtolower($depositoId))))
@@ -1032,6 +1040,12 @@ function notas_traslado_base_select(): string
                    CONCAT(uap.Nombre, " ", uap.Apellido) AS UsuarioAprobacionNombre,
                    ua.DepositoId AS UserAddDepositoId,
                    n.StatusNotaTrasladoId, n.TransportistaAsignadoId, n.FechaAsignacionTransporte,
+                   EXISTS (
+                       SELECT 1
+                       FROM NotasTrasladoTraza nts
+                       WHERE nts.NotaTrasladoId = n.Id
+                         AND nts.Accion = "CHEQUEO_SEGURIDAD"
+                   ) AS SeguridadChequeada,
                    o.Nombre AS Origen,
                    CASE WHEN n.tipoEnvio = "empleado" THEN "Empleado"
                         WHEN n.tipoEnvio IN ("externo", "empleado") THEN COALESCE(e.Nombre, n.ReceptorExterno, "Externo")
@@ -1078,11 +1092,20 @@ function notas_traslado_puede_ver(array $nota, array $roles, string $usuarioId, 
         return true;
     }
 
+    $mismaSucursalOrigen = $depositoId !== ''
+        && strtolower((string) $nota['UserAddDepositoId']) === strtolower($depositoId);
+    if (
+        notas_traslado_has_role($roles, 'NOTA_TRASLADO_SEGURIDAD')
+        && $mismaSucursalOrigen
+        && $status === NT_STATUS_EN_TRANSITO
+    ) {
+        return true;
+    }
+
     if (!notas_traslado_has_role($roles, 'NOTA_TRASLADO_DESPACHO') || $depositoId === '') {
         return false;
     }
 
-    $mismaSucursalOrigen = strtolower((string) $nota['UserAddDepositoId']) === strtolower($depositoId);
     $mismaSucursalDestino = strtolower((string) $nota['DestinoId']) === strtolower($depositoId);
 
     return (
@@ -1121,6 +1144,7 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
     $isAdmin = notas_traslado_is_admin($roles) || notas_traslado_has_role($roles, 'NOTA_TRASLADO_FULL_USERS');
     $isDespacho = notas_traslado_has_role($roles, 'NOTA_TRASLADO_DESPACHO');
     $isTransporte = notas_traslado_has_role($roles, 'NOTA_TRASLADO_TRANSPORTE');
+    $isSeguridad = notas_traslado_has_role($roles, 'NOTA_TRASLADO_SEGURIDAD');
     $isAprobador = notas_traslado_has_role($roles, 'NOTA_TRASLADO_APROBACION');
 
     $where = ['n.Estado = 1'];
@@ -1156,6 +1180,11 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
         if ($isTransporte) {
             $visibility[] = '(n.TransportistaAsignadoId = :transportistaId AND n.StatusNotaTrasladoId NOT IN (' . NT_STATUS_RECEPCION_SEDE . ',' . NT_STATUS_RECIBIDA . '))';
             $params['transportistaId'] = $usuarioId;
+        }
+
+        if ($isSeguridad && $depositoId !== '') {
+            $visibility[] = '(ua.DepositoId = :seguridadDepositoId AND n.StatusNotaTrasladoId = ' . NT_STATUS_EN_TRANSITO . ')';
+            $params['seguridadDepositoId'] = $depositoId;
         }
 
         if ($isDespacho && $depositoId !== '') {
@@ -1204,6 +1233,7 @@ function handle_notas_traslado_scan(PDO $pdo, array $config): void
     $roles = $auth['roles'];
     $isTransporte = notas_traslado_has_role($roles, 'NOTA_TRASLADO_TRANSPORTE');
     $isDespacho = notas_traslado_has_role($roles, 'NOTA_TRASLADO_DESPACHO') || notas_traslado_is_admin($roles);
+    $isSeguridad = notas_traslado_has_role($roles, 'NOTA_TRASLADO_SEGURIDAD');
 
     $pdo->beginTransaction();
     try {
@@ -1221,6 +1251,41 @@ function handle_notas_traslado_scan(PDO $pdo, array $config): void
         $isAdmin = notas_traslado_is_admin($roles);
         $mismaSucursalOrigen = $depositoId !== ''
             && strtolower((string) $nota['UserAddDepositoId']) === strtolower($depositoId);
+
+        if ($isSeguridad && $status === NT_STATUS_EN_TRANSITO && $mismaSucursalOrigen) {
+            $trazaStmt = $pdo->prepare(
+                'SELECT Id
+                 FROM NotasTrasladoTraza
+                 WHERE NotaTrasladoId = :notaId AND Accion = "CHEQUEO_SEGURIDAD"
+                 LIMIT 1'
+            );
+            $trazaStmt->execute(['notaId' => $notaId]);
+            if ($trazaStmt->fetchColumn()) {
+                $pdo->rollBack();
+                json_response([
+                    'ok' => false,
+                    'message' => 'La Nota de Traslado ya fue chequeada por Seguridad.',
+                ], 409, $config);
+                return;
+            }
+
+            notas_traslado_registrar_traza(
+                $pdo,
+                $notaId,
+                'CHEQUEO_SEGURIDAD',
+                NT_STATUS_EN_TRANSITO,
+                'Seguridad verifico la Nota de Traslado antes de la salida de sede.',
+                $usuarioId
+            );
+            notas_traslado_registrar_log(
+                $pdo,
+                $usuarioId,
+                'Chequeo Seguridad Nota de Traslado: ' . (string) $nota['NumeroNota']
+            );
+            $pdo->commit();
+            json_response(['ok' => true, 'accion' => 'chequeo_seguridad', 'message' => 'Chequeo de Seguridad registrado correctamente.'], 200, $config);
+            return;
+        }
 
         if ($isDespacho && $status === NT_STATUS_GENERADA && ($isAdmin || $mismaSucursalOrigen)) {
             notas_traslado_actualizar_estado_y_traza(
