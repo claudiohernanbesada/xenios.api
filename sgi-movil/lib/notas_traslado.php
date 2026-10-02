@@ -1515,7 +1515,7 @@ function handle_notas_traslado_aprobacion(PDO $pdo, array $config, string $notaI
             $status,
             $usuarioId,
             $aprobar ? 'APROBACION' : 'RECHAZO_APROBACION',
-            $aprobar ? 'La nota de traslado con destino a empleado fue aprobada.' : 'La nota de traslado con destino a empleado fue rechazada.',
+            $aprobar ? 'La nota de traslado con destino al empleado fue autorizada.' : 'La nota de traslado con destino a empleado fue rechazada.',
             [
                 'UsuarioAprobacionId' => $usuarioId,
                 'FechaAprobacion' => '__NOW__',
