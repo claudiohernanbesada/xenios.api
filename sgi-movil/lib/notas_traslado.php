@@ -15,6 +15,7 @@ const NT_STATUS_RECHAZADA = 9;
 const NT_TIPO_ENVIO_INTERNO = 'interno';
 const NT_TIPO_ENVIO_EXTERNO = 'externo';
 const NT_TIPO_ENVIO_EMPLEADO = 'empleado';
+const NT_PDF_LAYOUT_MARKER = 'NT_PDF_LAYOUT_BULTOS_CARD_V1';
 
 function notas_traslado_tipo_envio(array $nota): string
 {
@@ -594,10 +595,17 @@ function notas_traslado_pdf_summary_box(string &$content, float $x, float $y, fl
     notas_traslado_pdf_text($content, $x + 10, $y + 12, $value !== '' ? $value : '-', 12, true);
 }
 
+function notas_traslado_pdf_packages_box(string &$content, float $x, float $y, float $w, int $cantidad): void
+{
+    notas_traslado_pdf_rect($content, $x, $y, $w, 44, '0.82 0.84 0.86', '0.96 0.97 0.98');
+    notas_traslado_pdf_text($content, $x + 10, $y + 28, 'Cantidad de Bultos:', 9, false, '0.35 0.37 0.40');
+    notas_traslado_pdf_text($content, $x + 10, $y + 9, (string) max(1, $cantidad), 16, true);
+}
+
 function notas_traslado_pdf_build(array $nota, array $detalles): string
 {
     $pages = [];
-    $content = '';
+    $content = "% " . NT_PDF_LAYOUT_MARKER . "\n";
     $y = 802.0;
     $assetsDir = dirname(__DIR__) . '/assets';
     $images = array_values(array_filter([
@@ -653,16 +661,9 @@ function notas_traslado_pdf_build(array $nota, array $detalles): string
     notas_traslado_pdf_summary_box($content, 40, 537, 250, 'Envia', (string) ($nota['NombreEnvia'] ?? '-'));
     notas_traslado_pdf_summary_box($content, 305, 537, 250, 'Recibe', (string) ($nota['NombreRecibe'] ?? '-'));
 
-    notas_traslado_pdf_text(
-        $content,
-        40,
-        518,
-        'Cantidad de Bultos: ' . (string) max(1, (int) ($nota['CantidadBultos'] ?? 1)),
-        10,
-        true
-    );
+    notas_traslado_pdf_packages_box($content, 40, 481, 515, (int) ($nota['CantidadBultos'] ?? 1));
 
-    $y = 497.0;
+    $y = 469.0;
     notas_traslado_pdf_rect($content, 40, $y - 24, 515, 24, '0.05 0.24 0.52', '0.05 0.24 0.52');
     notas_traslado_pdf_text($content, 70, $y - 16, 'Cantidad', 10, true, '1 1 1');
     notas_traslado_pdf_text($content, 150, $y - 16, 'Detalle', 10, true, '1 1 1');
@@ -1718,7 +1719,8 @@ function handle_notas_traslado_documento(PDO $pdo, array $config, string $notaId
     }
 
     $pdf = notas_traslado_obtener_pdf_blob($pdo, $notaId);
-    if ($pdf === '') {
+    $pdfDesactualizado = $pdf !== '' && strpos($pdf, NT_PDF_LAYOUT_MARKER) === false;
+    if ($pdf === '' || $pdfDesactualizado) {
         if ($statusNota === NT_STATUS_PENDIENTE_APROBACION && $puedeVerPendienteAprobacion) {
             $detStmt = $pdo->prepare(
                 'SELECT Cantidad, Detalle
