@@ -187,7 +187,7 @@ function notas_traslado_status_label(int $status): string
         NT_STATUS_GENERADA => 'Generada',
         NT_STATUS_RECEPCION_DESPACHO => 'Recepcion Despacho',
         NT_STATUS_EN_TRANSITO => 'En transito',
-        NT_STATUS_RECEPCION_SEDE => 'Recepcion Sede',
+        NT_STATUS_RECEPCION_SEDE => 'Recepcion Despacho Destino',
         NT_STATUS_ENTREGADO => 'Entregado',
         NT_STATUS_RECIBIDA => 'Recibida',
         NT_STATUS_ANULADA => 'Anulada',
@@ -1543,12 +1543,12 @@ function handle_notas_traslado_scan(PDO $pdo, array $config): void
                 NT_STATUS_RECEPCION_SEDE,
                 $usuarioId,
                 'RECEPCION_SEDE',
-                'La sede destino recibio el traslado.',
+                'Despacho destino recibio el traslado.',
                 [],
                 'Cambio estado Nota de Traslado: ' . (string) $nota['NumeroNota'] . ' a ' . notas_traslado_status_label(NT_STATUS_RECEPCION_SEDE)
             );
             $pdo->commit();
-            json_response(['ok' => true, 'accion' => 'recepcion_sede', 'message' => 'Recepción en sede registrada correctamente.'], 200, $config);
+            json_response(['ok' => true, 'accion' => 'recepcion_despacho_destino', 'message' => 'Recepción de despacho destino registrada correctamente.'], 200, $config);
             return;
         }
 
