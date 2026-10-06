@@ -148,6 +148,11 @@ function notas_traslado_involucra_deposito(array $nota, string $depositoId): boo
         || strtolower((string) ($nota['DestinoId'] ?? '')) === $deposito;
 }
 
+function notas_traslado_normalizar_dni(mixed $dni): string
+{
+    return preg_replace('/\D+/', '', (string) $dni) ?? '';
+}
+
 function notas_traslado_extract_id(mixed $raw): string
 {
     $value = trim((string) $raw);
@@ -851,6 +856,11 @@ function notas_traslado_map_row(array $row, array $context = []): array
         'usuarioActualizacion' => trim((string) ($row['UsuarioActualizacion'] ?? '')),
         'transportistaAsignadoId' => $row['TransportistaAsignadoId'] !== null ? (string) $row['TransportistaAsignadoId'] : null,
         'fechaAsignacionTransporte' => $row['FechaAsignacionTransporte'] !== null ? (string) $row['FechaAsignacionTransporte'] : null,
+        'transporteExternoEmpresaId' => $row['TransporteExternoEmpresaId'] !== null ? (string) $row['TransporteExternoEmpresaId'] : null,
+        'transporteExternoEmpresa' => $row['TransporteExternoEmpresaNombre'] !== null ? (string) $row['TransporteExternoEmpresaNombre'] : null,
+        'transporteExternoNombre' => $row['TransporteExternoNombre'] !== null ? (string) $row['TransporteExternoNombre'] : null,
+        'transporteExternoApellido' => $row['TransporteExternoApellido'] !== null ? (string) $row['TransporteExternoApellido'] : null,
+        'transporteExternoDni' => $row['TransporteExternoDni'] !== null ? (string) $row['TransporteExternoDni'] : null,
         'seguridadChequeada' => (int) ($row['SeguridadChequeada'] ?? 0) > 0,
         'puedeChequearSeguridad' => $statusId === NT_STATUS_EN_TRANSITO
             && !$isTransporte
@@ -863,6 +873,7 @@ function notas_traslado_map_row(array $row, array $context = []): array
         ),
         'puedeRecibir' => notas_traslado_es_interno($row) && $statusId === NT_STATUS_ENTREGADO && $esReceptorInterno,
         'puedeAprobar' => $statusId === NT_STATUS_PENDIENTE_APROBACION && $isAprobador,
+        'puedeAsignarTransporteExterno' => $statusId === NT_STATUS_RECEPCION_DESPACHO && ($isAdmin || $isDespacho),
     ];
 }
 
@@ -1079,7 +1090,8 @@ function notas_traslado_actualizar_estado_y_traza(
 function notas_traslado_base_select(): string
 {
     return 'SELECT n.Id, n.NumeroNota, n.Fecha, n.tipoEnvio AS TipoEnvio, n.OrigenId, n.DestinoId, n.PersonalRecibeId, n.NombreEnvia, n.NombreRecibe, n.CantidadBultos, n.UserRecibeId,
-                   n.UserAdd, n.ReceptorExterno, n.DocumentoFirmado, ur.Mail AS UserRecibeMail, COALESCE(n.DateMod, n.DateAdd) AS FechaActualizacion,
+                   n.UserAdd, n.ReceptorExterno, n.DocumentoFirmado, n.TransporteExternoEmpresaId, n.TransporteExternoNombre, n.TransporteExternoApellido, n.TransporteExternoDni,
+                   et.Nombre AS TransporteExternoEmpresaNombre, ur.Mail AS UserRecibeMail, COALESCE(n.DateMod, n.DateAdd) AS FechaActualizacion,
                    n.UsuarioAprobacionId, n.FechaAprobacion,
                    CONCAT(COALESCE(um.Nombre, ua.Nombre), " ", COALESCE(um.Apellido, ua.Apellido)) AS UsuarioActualizacion,
                    e.Nombre AS EmpresaNombre, COALESCE(e.EmpresaFrecuente, 0) AS EmpresaFrecuente,
@@ -1104,6 +1116,7 @@ function notas_traslado_base_select(): string
             LEFT JOIN Depositos o ON o.Id = n.OrigenId
             LEFT JOIN Depositos d ON d.Id = n.DestinoId
             LEFT JOIN Empresa e ON e.Id = n.EmpresaId
+            LEFT JOIN Empresa et ON et.Id = n.TransporteExternoEmpresaId
             LEFT JOIN Personal pr ON pr.Id = n.PersonalRecibeId
             LEFT JOIN Usuarios uap ON uap.Id = n.UsuarioAprobacionId';
 }
@@ -1268,6 +1281,134 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
         'depositoId' => $depositoId,
     ];
     json_response(['notas' => array_map(static fn ($row) => notas_traslado_map_row($row, $context), $rows)], 200, $config);
+}
+
+function handle_notas_traslado_empresas_transporte(PDO $pdo, array $config): void
+{
+    $auth = notas_traslado_require_auth($pdo, $config);
+    notas_traslado_require_role($auth['roles'], $config);
+
+    if (!notas_traslado_is_admin($auth['roles']) && !notas_traslado_has_role($auth['roles'], 'NOTA_TRASLADO_DESPACHO')) {
+        json_response(['message' => 'Sin permisos para consultar empresas de transporte.'], 403, $config);
+        return;
+    }
+
+    $stmt = $pdo->query(
+        'SELECT e.Id AS id, e.Nombre AS nombre
+         FROM Empresa e
+         INNER JOIN Actividad a ON a.Id = e.ActividadId
+         WHERE e.Estado = 1
+           AND e.TipoId IN (1, 3)
+           AND LOWER(a.Nombre) LIKE "%servicio%"
+           AND LOWER(a.Nombre) LIKE "%transporte%"
+         ORDER BY e.Nombre'
+    );
+
+    json_response(['empresas' => $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []], 200, $config);
+}
+
+function notas_traslado_empresa_transporte_valida(PDO $pdo, string $empresaId): bool
+{
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM Empresa e
+         INNER JOIN Actividad a ON a.Id = e.ActividadId
+         WHERE e.Id = :empresaId
+           AND e.Estado = 1
+           AND e.TipoId IN (1, 3)
+           AND LOWER(a.Nombre) LIKE "%servicio%"
+           AND LOWER(a.Nombre) LIKE "%transporte%"'
+    );
+    $stmt->execute(['empresaId' => $empresaId]);
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+function handle_notas_traslado_transporte_externo(PDO $pdo, array $config, string $notaId): void
+{
+    $auth = notas_traslado_require_auth($pdo, $config);
+    notas_traslado_require_role($auth['roles'], $config);
+
+    $roles = $auth['roles'];
+    if (!notas_traslado_is_admin($roles) && !notas_traslado_has_role($roles, 'NOTA_TRASLADO_DESPACHO')) {
+        json_response(['message' => 'Sin permisos para asignar transporte externo.'], 403, $config);
+        return;
+    }
+
+    $body = json_decode(file_get_contents('php://input') ?: '{}', true) ?? [];
+    $notaId = notas_traslado_extract_id($notaId);
+    $empresaId = notas_traslado_extract_id($body['empresaId'] ?? $body['transporteExternoEmpresaId'] ?? '');
+    $nombre = trim((string) ($body['nombre'] ?? $body['transporteExternoNombre'] ?? ''));
+    $apellido = trim((string) ($body['apellido'] ?? $body['transporteExternoApellido'] ?? ''));
+    $dni = notas_traslado_normalizar_dni($body['dni'] ?? $body['transporteExternoDni'] ?? '');
+
+    if ($notaId === '' || $empresaId === '' || $nombre === '' || $apellido === '' || $dni === '') {
+        json_response(['message' => 'Debe seleccionar empresa y cargar nombre, apellido y DNI del transportista.'], 400, $config);
+        return;
+    }
+
+    if (strlen($dni) < 7 || strlen($dni) > 9) {
+        json_response(['message' => 'El DNI del transportista no es válido.'], 400, $config);
+        return;
+    }
+
+    if (!notas_traslado_empresa_transporte_valida($pdo, $empresaId)) {
+        json_response(['message' => 'La empresa seleccionada no es un proveedor de servicio de transporte activo.'], 400, $config);
+        return;
+    }
+
+    $usuarioId = (string) $auth['user']['Id'];
+    $usuarioMail = (string) ($auth['user']['Mail'] ?? '');
+    $depositoId = (string) ($auth['user']['DepositoId'] ?? '');
+
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare(notas_traslado_base_select() . ' WHERE n.Id = :id AND n.Estado = 1 LIMIT 1 FOR UPDATE');
+        $stmt->execute(['id' => $notaId]);
+        $nota = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$nota) {
+            $pdo->rollBack();
+            json_response(['message' => 'Nota de Traslado no encontrada.'], 404, $config);
+            return;
+        }
+
+        if (!notas_traslado_puede_ver($nota, $roles, $usuarioId, $depositoId, $usuarioMail)) {
+            $pdo->rollBack();
+            json_response(['message' => 'No tiene permisos sobre esta nota.'], 403, $config);
+            return;
+        }
+
+        if ((int) $nota['StatusNotaTrasladoId'] !== NT_STATUS_RECEPCION_DESPACHO) {
+            $pdo->rollBack();
+            json_response(['message' => 'La nota debe estar en Recepción Despacho para asignar transporte externo.'], 409, $config);
+            return;
+        }
+
+        notas_traslado_actualizar_estado_y_traza(
+            $pdo,
+            $notaId,
+            NT_STATUS_EN_TRANSITO,
+            $usuarioId,
+            'ASIGNACION_TRANSPORTE_EXTERNO',
+            'Traslado asignado a transporte externo.',
+            [
+                'TransporteExternoEmpresaId' => $empresaId,
+                'TransporteExternoNombre' => $nombre,
+                'TransporteExternoApellido' => $apellido,
+                'TransporteExternoDni' => $dni,
+                'TransportistaAsignadoId' => null,
+                'FechaAsignacionTransporte' => '__NOW__',
+            ],
+            'Asignación Transporte Externo Nota de Traslado: ' . (string) $nota['NumeroNota']
+        );
+
+        $pdo->commit();
+        json_response(['ok' => true, 'message' => 'Transporte externo asignado correctamente.'], 200, $config);
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
 }
 
 function handle_notas_traslado_scan(PDO $pdo, array $config): void
@@ -1899,8 +2040,18 @@ function handle_notas_traslado_routes(PDO $pdo, array $config, string $path, str
         return true;
     }
 
+    if ($method === 'GET' && $path === '/notas-traslado/empresas-transporte') {
+        handle_notas_traslado_empresas_transporte($pdo, $config);
+        return true;
+    }
+
     if ($method === 'POST' && $path === '/notas-traslado/scan') {
         handle_notas_traslado_scan($pdo, $config);
+        return true;
+    }
+
+    if ($method === 'POST' && preg_match('#^/notas-traslado/([^/]+)/transporte-externo$#', $path, $m)) {
+        handle_notas_traslado_transporte_externo($pdo, $config, $m[1]);
         return true;
     }
 
