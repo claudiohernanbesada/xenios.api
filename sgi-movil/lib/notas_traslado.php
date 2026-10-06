@@ -991,6 +991,45 @@ function notas_traslado_solicitar_regeneracion_pdf_web(array $config, string $no
     return false;
 }
 
+function notas_traslado_notificar_actualizacion_web(array $config, string $notaId): void
+{
+    $baseUrl = trim((string) ($config['sgi_web_base_url'] ?? ''));
+    if ($baseUrl === '' || !function_exists('curl_init')) {
+        return;
+    }
+
+    $apiKey = config_api_key($config);
+    if ($apiKey === '') {
+        return;
+    }
+
+    $url = rtrim($baseUrl, '/') . '/NotasTraslado/NotificarActualizacion/' . rawurlencode($notaId);
+    $curl = curl_init($url);
+    if ($curl === false) {
+        return;
+    }
+
+    curl_setopt_array($curl, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 3,
+        CURLOPT_TIMEOUT => 8,
+        CURLOPT_HTTPHEADER => [
+            'Accept: application/json',
+            'X-API-KEY: ' . $apiKey,
+        ],
+    ]);
+
+    $body = curl_exec($curl);
+    $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    $error = curl_error($curl);
+    curl_close($curl);
+
+    if ($body === false || $status < 200 || $status >= 300) {
+        error_log('[notas_traslado] Fallo notificando actualizacion web de nota ' . $notaId . '. HTTP=' . $status . ' Error=' . $error . ' Body=' . substr((string) $body, 0, 300));
+    }
+}
+
 function notas_traslado_obtener_pdf_blob(PDO $pdo, string $notaId): string
 {
     $fileStmt = $pdo->prepare('SELECT FileNota FROM NotasTraslado WHERE Id = :id AND Estado = 1 LIMIT 1');
@@ -1801,6 +1840,7 @@ function handle_notas_traslado_aprobacion(PDO $pdo, array $config, string $notaI
             $pdf = notas_traslado_regenerar_y_obtener_pdf($pdo, $config, $notaId);
             $pdfSize = strlen($pdf);
         }
+        notas_traslado_notificar_actualizacion_web($config, $notaId);
 
         json_response([
             'ok' => true,
