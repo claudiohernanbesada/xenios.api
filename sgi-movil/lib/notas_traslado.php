@@ -1337,8 +1337,8 @@ function handle_notas_traslado_transporte_externo(PDO $pdo, array $config, strin
     $body = json_decode(file_get_contents('php://input') ?: '{}', true) ?? [];
     $notaId = notas_traslado_extract_id($notaId);
     $empresaId = notas_traslado_extract_id($body['empresaId'] ?? $body['transporteExternoEmpresaId'] ?? '');
-    $nombre = trim((string) ($body['nombre'] ?? $body['transporteExternoNombre'] ?? ''));
-    $apellido = trim((string) ($body['apellido'] ?? $body['transporteExternoApellido'] ?? ''));
+    $nombre = mb_strtoupper(trim((string) ($body['nombre'] ?? $body['transporteExternoNombre'] ?? '')), 'UTF-8');
+    $apellido = mb_strtoupper(trim((string) ($body['apellido'] ?? $body['transporteExternoApellido'] ?? '')), 'UTF-8');
     $dni = notas_traslado_normalizar_dni($body['dni'] ?? $body['transporteExternoDni'] ?? '');
 
     if ($notaId === '' || $empresaId === '' || $nombre === '' || $apellido === '' || $dni === '') {
