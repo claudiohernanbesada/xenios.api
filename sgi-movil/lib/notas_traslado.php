@@ -124,6 +124,30 @@ function notas_traslado_es_receptor(array $nota, string $usuarioId, string $usua
     return $mailReceptor !== '' && $mailUsuario !== '' && $mailReceptor === $mailUsuario;
 }
 
+function notas_traslado_estado_pendiente_despacho(int $status): bool
+{
+    return in_array($status, [
+        NT_STATUS_GENERADA,
+        NT_STATUS_RECEPCION_DESPACHO,
+        NT_STATUS_EN_TRANSITO,
+        NT_STATUS_RECEPCION_SEDE,
+        NT_STATUS_ENTREGADO,
+    ], true);
+}
+
+function notas_traslado_involucra_deposito(array $nota, string $depositoId): bool
+{
+    if ($depositoId === '') {
+        return false;
+    }
+
+    $deposito = strtolower($depositoId);
+
+    return strtolower((string) ($nota['OrigenId'] ?? '')) === $deposito
+        || strtolower((string) ($nota['UserAddDepositoId'] ?? '')) === $deposito
+        || strtolower((string) ($nota['DestinoId'] ?? '')) === $deposito;
+}
+
 function notas_traslado_extract_id(mixed $raw): string
 {
     $value = trim((string) $raw);
@@ -1114,7 +1138,7 @@ function notas_traslado_puede_ver(array $nota, array $roles, string $usuarioId, 
     }
 
     $mismaSucursalOrigen = $depositoId !== ''
-        && strtolower((string) $nota['UserAddDepositoId']) === strtolower($depositoId);
+        && strtolower((string) ($nota['UserAddDepositoId'] ?? '')) === strtolower($depositoId);
     if (
         notas_traslado_has_role($roles, 'NOTA_TRASLADO_SEGURIDAD')
         && $mismaSucursalOrigen
@@ -1127,15 +1151,8 @@ function notas_traslado_puede_ver(array $nota, array $roles, string $usuarioId, 
         return false;
     }
 
-    $mismaSucursalDestino = strtolower((string) $nota['DestinoId']) === strtolower($depositoId);
-
-    return (
-        $mismaSucursalOrigen
-        && in_array($status, [NT_STATUS_GENERADA, NT_STATUS_RECEPCION_DESPACHO], true)
-    ) || (
-        $mismaSucursalDestino
-        && in_array($status, [NT_STATUS_EN_TRANSITO, NT_STATUS_RECEPCION_SEDE], true)
-    );
+    return notas_traslado_involucra_deposito($nota, $depositoId)
+        && notas_traslado_estado_pendiente_despacho($status);
 }
 
 function handle_notas_traslado_list(PDO $pdo, array $config): void
@@ -1214,11 +1231,14 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
 
         if ($isDespacho && $depositoId !== '') {
             if ($mostrarTodos) {
+                $visibility[] = '(n.OrigenId = :depositoId AND n.StatusNotaTrasladoId <> ' . NT_STATUS_ANULADA . ')';
                 $visibility[] = '(ua.DepositoId = :depositoId AND n.StatusNotaTrasladoId <> ' . NT_STATUS_ANULADA . ')';
                 $visibility[] = '(n.DestinoId = :depositoId AND n.StatusNotaTrasladoId <> ' . NT_STATUS_ANULADA . ')';
             } else {
-                $visibility[] = '(ua.DepositoId = :depositoId AND n.StatusNotaTrasladoId IN (' . NT_STATUS_GENERADA . ',' . NT_STATUS_RECEPCION_DESPACHO . '))';
-                $visibility[] = '(n.DestinoId = :depositoId AND n.StatusNotaTrasladoId IN (' . NT_STATUS_EN_TRANSITO . ',' . NT_STATUS_RECEPCION_SEDE . '))';
+                $statusDespacho = NT_STATUS_GENERADA . ',' . NT_STATUS_RECEPCION_DESPACHO . ',' . NT_STATUS_EN_TRANSITO . ',' . NT_STATUS_RECEPCION_SEDE . ',' . NT_STATUS_ENTREGADO;
+                $visibility[] = '(n.OrigenId = :depositoId AND n.StatusNotaTrasladoId IN (' . $statusDespacho . '))';
+                $visibility[] = '(ua.DepositoId = :depositoId AND n.StatusNotaTrasladoId IN (' . $statusDespacho . '))';
+                $visibility[] = '(n.DestinoId = :depositoId AND n.StatusNotaTrasladoId IN (' . $statusDespacho . '))';
             }
             $params['depositoId'] = $depositoId;
         }
@@ -1365,10 +1385,7 @@ function handle_notas_traslado_scan(PDO $pdo, array $config): void
             return;
         }
 
-        $mismaSucursalDestino = $depositoId !== ''
-            && strtolower((string) $nota['DestinoId']) === strtolower($depositoId);
-
-        if ($isDespacho && notas_traslado_es_interno($nota) && $status === NT_STATUS_EN_TRANSITO && ($isAdmin || $mismaSucursalDestino)) {
+        if ($isDespacho && notas_traslado_es_interno($nota) && $status === NT_STATUS_EN_TRANSITO) {
             notas_traslado_actualizar_estado_y_traza(
                 $pdo,
                 $notaId,
