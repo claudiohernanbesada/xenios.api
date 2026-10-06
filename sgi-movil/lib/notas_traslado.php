@@ -1144,7 +1144,7 @@ function notas_traslado_puede_ver(array $nota, array $roles, string $usuarioId, 
 
     if (
         notas_traslado_has_role($roles, 'NOTA_TRASLADO_TRANSPORTE')
-        && !in_array($status, [NT_STATUS_RECEPCION_SEDE, NT_STATUS_RECIBIDA], true)
+        && $status === NT_STATUS_EN_TRANSITO
         && strtolower((string) ($nota['TransportistaAsignadoId'] ?? '')) === strtolower($usuarioId)
     ) {
         return true;
@@ -1239,7 +1239,9 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
         $params['usuarioMail'] = notas_traslado_normalizar_mail($usuarioMail);
 
         if ($isTransporte) {
-            $visibility[] = '(n.TransportistaAsignadoId = :transportistaId AND n.StatusNotaTrasladoId NOT IN (' . NT_STATUS_RECEPCION_SEDE . ',' . NT_STATUS_RECIBIDA . '))';
+            $visibility[] = $mostrarTodos
+                ? '(n.TransportistaAsignadoId = :transportistaId AND n.StatusNotaTrasladoId <> ' . NT_STATUS_ANULADA . ')'
+                : '(n.TransportistaAsignadoId = :transportistaId AND n.StatusNotaTrasladoId = ' . NT_STATUS_EN_TRANSITO . ')';
             $params['transportistaId'] = $usuarioId;
         }
 
