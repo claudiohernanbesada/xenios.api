@@ -1148,11 +1148,17 @@ function notas_traslado_puede_ver(array $nota, array $roles, string $usuarioId, 
     }
 
     if (!notas_traslado_has_role($roles, 'NOTA_TRASLADO_DESPACHO') || $depositoId === '') {
-        return false;
+        return notas_traslado_has_role($roles, 'NOTA_TRASLADO_DESPACHO')
+            && notas_traslado_es_externo($nota)
+            && $status === NT_STATUS_ENTREGADO
+            && trim((string) ($nota['DocumentoFirmado'] ?? '')) === '';
     }
 
-    return notas_traslado_involucra_deposito($nota, $depositoId)
-        && notas_traslado_estado_pendiente_despacho($status);
+    return (notas_traslado_involucra_deposito($nota, $depositoId)
+            && notas_traslado_estado_pendiente_despacho($status))
+        || (notas_traslado_es_externo($nota)
+            && $status === NT_STATUS_ENTREGADO
+            && trim((string) ($nota['DocumentoFirmado'] ?? '')) === '');
 }
 
 function handle_notas_traslado_list(PDO $pdo, array $config): void
@@ -1227,6 +1233,10 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
         if ($isSeguridad && $depositoId !== '') {
             $visibility[] = '(ua.DepositoId = :seguridadDepositoId AND n.StatusNotaTrasladoId = ' . NT_STATUS_EN_TRANSITO . ')';
             $params['seguridadDepositoId'] = $depositoId;
+        }
+
+        if ($isDespacho) {
+            $visibility[] = '(n.tipoEnvio IN ("externo", "empleado") AND n.StatusNotaTrasladoId = ' . NT_STATUS_ENTREGADO . ' AND (n.DocumentoFirmado IS NULL OR n.DocumentoFirmado = ""))';
         }
 
         if ($isDespacho && $depositoId !== '') {
