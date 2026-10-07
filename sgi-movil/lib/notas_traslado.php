@@ -15,7 +15,7 @@ const NT_STATUS_RECHAZADA = 9;
 const NT_TIPO_ENVIO_INTERNO = 'interno';
 const NT_TIPO_ENVIO_EXTERNO = 'externo';
 const NT_TIPO_ENVIO_EMPLEADO = 'empleado';
-const NOTAS_TRASLADO_API_VERSION = '2026-10-07-transporte-externo-debug-v3';
+const NOTAS_TRASLADO_API_VERSION = '2026-10-07-transporte-externo-mb-fallback-v4';
 const NT_PDF_LAYOUT_MARKER = 'NT_PDF_LAYOUT_BULTOS_CARD_V2';
 
 function notas_traslado_tipo_envio(array $nota): string
@@ -33,7 +33,11 @@ function notas_traslado_capitalizar_palabras(mixed $valor): string
         return '';
     }
 
-    return mb_convert_case(mb_strtolower($texto, 'UTF-8'), MB_CASE_TITLE, 'UTF-8');
+    if (function_exists('mb_convert_case') && function_exists('mb_strtolower')) {
+        return mb_convert_case(mb_strtolower($texto, 'UTF-8'), MB_CASE_TITLE, 'UTF-8');
+    }
+
+    return ucwords(strtolower($texto));
 }
 
 function notas_traslado_es_empleado(array $nota): bool
