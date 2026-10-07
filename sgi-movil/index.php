@@ -33,6 +33,9 @@ if ($method === 'OPTIONS') {
     exit;
 }
 
+// API key requerida para todas las rutas.
+require_api_key($config);
+
 if ($method === 'GET' && $path === '/health') {
     json_response([
         'ok' => true,
@@ -41,9 +44,6 @@ if ($method === 'GET' && $path === '/health') {
     ], 200, $config);
     exit;
 }
-
-// API key requerida para las rutas operativas.
-require_api_key($config);
 
 // Si MySQL no responde, cortamos acá con 500
 try {
