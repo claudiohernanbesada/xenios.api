@@ -25,6 +25,16 @@ function notas_traslado_tipo_envio(array $nota): string
         : NT_TIPO_ENVIO_INTERNO;
 }
 
+function notas_traslado_capitalizar_palabras(mixed $valor): string
+{
+    $texto = trim((string) $valor);
+    if ($texto === '') {
+        return '';
+    }
+
+    return mb_convert_case(mb_strtolower($texto, 'UTF-8'), MB_CASE_TITLE, 'UTF-8');
+}
+
 function notas_traslado_es_empleado(array $nota): bool
 {
     return notas_traslado_tipo_envio($nota) === NT_TIPO_ENVIO_EMPLEADO;
@@ -1378,8 +1388,8 @@ function handle_notas_traslado_transporte_externo(PDO $pdo, array $config, strin
     $body = json_decode(file_get_contents('php://input') ?: '{}', true) ?? [];
     $notaId = notas_traslado_extract_id($notaId);
     $empresaId = notas_traslado_extract_id($body['empresaId'] ?? $body['transporteExternoEmpresaId'] ?? '');
-    $nombre = mb_strtoupper(trim((string) ($body['nombre'] ?? $body['transporteExternoNombre'] ?? '')), 'UTF-8');
-    $apellido = mb_strtoupper(trim((string) ($body['apellido'] ?? $body['transporteExternoApellido'] ?? '')), 'UTF-8');
+    $nombre = notas_traslado_capitalizar_palabras($body['nombre'] ?? $body['transporteExternoNombre'] ?? '');
+    $apellido = notas_traslado_capitalizar_palabras($body['apellido'] ?? $body['transporteExternoApellido'] ?? '');
     $dni = notas_traslado_normalizar_dni($body['dni'] ?? $body['transporteExternoDni'] ?? '');
 
     if ($notaId === '' || $empresaId === '' || $nombre === '' || $apellido === '' || $dni === '') {
