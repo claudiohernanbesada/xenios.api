@@ -47,7 +47,11 @@ try {
 // Enrutador: método + path → handler correspondiente
 try {
     match (true) {
-        $method === 'GET' && $path === '/health' => json_response(['ok' => true, 'service' => 'sgi-movil'], 200, $config),
+        $method === 'GET' && $path === '/health' => json_response([
+            'ok' => true,
+            'service' => 'sgi-movil',
+            'notasTrasladoVersion' => defined('NOTAS_TRASLADO_API_VERSION') ? NOTAS_TRASLADO_API_VERSION : null,
+        ], 200, $config),
         $method === 'GET' && $path === '/app-version' => handle_app_version($pdo, $config),
         $method === 'POST' && $path === '/auth/login' => handle_login($pdo, $config),
         $method === 'POST' && $path === '/auth/logout' => handle_logout($pdo, $config),

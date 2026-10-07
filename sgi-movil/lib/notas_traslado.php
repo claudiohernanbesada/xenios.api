@@ -15,6 +15,7 @@ const NT_STATUS_RECHAZADA = 9;
 const NT_TIPO_ENVIO_INTERNO = 'interno';
 const NT_TIPO_ENVIO_EXTERNO = 'externo';
 const NT_TIPO_ENVIO_EMPLEADO = 'empleado';
+const NOTAS_TRASLADO_API_VERSION = '2026-10-07-transporte-externo-debug-v3';
 const NT_PDF_LAYOUT_MARKER = 'NT_PDF_LAYOUT_BULTOS_CARD_V2';
 
 function notas_traslado_tipo_envio(array $nota): string
