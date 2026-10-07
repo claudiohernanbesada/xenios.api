@@ -1447,21 +1447,44 @@ function handle_notas_traslado_transporte_externo(PDO $pdo, array $config, strin
             return;
         }
 
-        notas_traslado_actualizar_estado_y_traza(
+        $upd = $pdo->prepare(
+            'UPDATE NotasTraslado
+             SET StatusNotaTrasladoId = :status,
+                 UserMod = :usuarioId,
+                 DateMod = NOW(),
+                 TransporteExternoEmpresaId = :empresaId,
+                 TransporteExternoNombre = :nombre,
+                 TransporteExternoApellido = :apellido,
+                 TransporteExternoDni = :dni,
+                 TransportistaAsignadoId = NULL,
+                 FechaAsignacionTransporte = NOW()
+             WHERE Id = :id AND Estado = 1'
+        );
+        $upd->execute([
+            'status' => NT_STATUS_EN_TRANSITO,
+            'usuarioId' => $usuarioId,
+            'empresaId' => $empresaId,
+            'nombre' => $nombre,
+            'apellido' => $apellido,
+            'dni' => $dni,
+            'id' => $notaId,
+        ]);
+
+        if ($upd->rowCount() < 1) {
+            throw new RuntimeException('No se pudo actualizar el estado de la Nota de Traslado.');
+        }
+
+        notas_traslado_registrar_traza(
             $pdo,
             $notaId,
-            NT_STATUS_EN_TRANSITO,
-            $usuarioId,
             'ASIGNACION_TRANSPORTE_EXTERNO',
-            'Traslado asignado a transporte externo.',
-            [
-                'TransporteExternoEmpresaId' => $empresaId,
-                'TransporteExternoNombre' => $nombre,
-                'TransporteExternoApellido' => $apellido,
-                'TransporteExternoDni' => $dni,
-                'TransportistaAsignadoId' => null,
-                'FechaAsignacionTransporte' => '__NOW__',
-            ],
+            NT_STATUS_EN_TRANSITO,
+            "Despacho asigno transporte externo: {$apellido}, {$nombre} - DNI {$dni}.",
+            $usuarioId
+        );
+        notas_traslado_registrar_log(
+            $pdo,
+            $usuarioId,
             'Asignación Transporte Externo Nota de Traslado: ' . (string) $nota['NumeroNota']
         );
 
