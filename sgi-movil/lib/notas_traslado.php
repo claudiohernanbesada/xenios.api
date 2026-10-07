@@ -878,7 +878,11 @@ function notas_traslado_map_row(array $row, array $context = []): array
             && $isSeguridad
             && $mismaSucursalOrigen,
         'puedeEntregar' => (
-            (notas_traslado_es_externo($row) && $statusId === NT_STATUS_EN_TRANSITO && ($isAdmin || ($isTransporte && $esTransportistaAsignado)))
+            (notas_traslado_es_externo($row)
+                && $statusId === NT_STATUS_EN_TRANSITO
+                && ($isAdmin
+                    || ($isTransporte && $esTransportistaAsignado)
+                    || ($isDespacho && trim((string) ($row['TransporteExternoEmpresaId'] ?? '')) !== '')))
             || (notas_traslado_es_interno($row) && $statusId === NT_STATUS_RECEPCION_SEDE && ($isAdmin || ($isDespacho && strtolower((string) ($row['DestinoId'] ?? '')) === strtolower($depositoId))))
         ),
         'puedeRecibir' => notas_traslado_es_interno($row) && $statusId === NT_STATUS_ENTREGADO && $esReceptorInterno,
