@@ -1107,6 +1107,9 @@ function notas_traslado_actualizar_estado_y_traza(
         'usuarioId' => $usuarioId,
         'id' => $notaId,
     ];
+    $paramTypes = [
+        'status' => PDO::PARAM_INT,
+    ];
 
     foreach ($extraSet as $column => $value) {
         if (!preg_match('/^[A-Za-z0-9_]+$/', (string) $column)) {
@@ -1121,6 +1124,9 @@ function notas_traslado_actualizar_estado_y_traza(
         $param = 'extra_' . $column;
         $set[] = $column . ' = :' . $param;
         $params[$param] = $value;
+        if ($value === null) {
+            $paramTypes[$param] = PDO::PARAM_NULL;
+        }
     }
 
     $upd = $pdo->prepare(
@@ -1128,7 +1134,10 @@ function notas_traslado_actualizar_estado_y_traza(
          SET ' . implode(', ', $set) . '
          WHERE Id = :id AND Estado = 1'
     );
-    $upd->execute($params);
+    foreach ($params as $param => $value) {
+        $upd->bindValue(':' . $param, $value, $paramTypes[$param] ?? PDO::PARAM_STR);
+    }
+    $upd->execute();
 
     if ($upd->rowCount() < 1) {
         throw new RuntimeException('No se pudo actualizar el estado de la Nota de Traslado.');
