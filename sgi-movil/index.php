@@ -27,14 +27,23 @@ apply_cors($config);
 $path = current_api_path($config);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
-// API key requerida para todas las rutas (desactivado, se valida en cada handler según corresponda)
-require_api_key($config); 
-
 // Preflight CORS — el browser manda OPTIONS antes del POST/DELETE real
 if ($method === 'OPTIONS') {
     http_response_code(204);
     exit;
 }
+
+if ($method === 'GET' && $path === '/health') {
+    json_response([
+        'ok' => true,
+        'service' => 'sgi-movil',
+        'notasTrasladoVersion' => defined('NOTAS_TRASLADO_API_VERSION') ? NOTAS_TRASLADO_API_VERSION : null,
+    ], 200, $config);
+    exit;
+}
+
+// API key requerida para las rutas operativas.
+require_api_key($config);
 
 // Si MySQL no responde, cortamos acá con 500
 try {
@@ -47,11 +56,6 @@ try {
 // Enrutador: método + path → handler correspondiente
 try {
     match (true) {
-        $method === 'GET' && $path === '/health' => json_response([
-            'ok' => true,
-            'service' => 'sgi-movil',
-            'notasTrasladoVersion' => defined('NOTAS_TRASLADO_API_VERSION') ? NOTAS_TRASLADO_API_VERSION : null,
-        ], 200, $config),
         $method === 'GET' && $path === '/app-version' => handle_app_version($pdo, $config),
         $method === 'POST' && $path === '/auth/login' => handle_login($pdo, $config),
         $method === 'POST' && $path === '/auth/logout' => handle_logout($pdo, $config),
