@@ -1425,7 +1425,9 @@ function handle_notas_traslado_transporte_externo(PDO $pdo, array $config, strin
     $depositoId = (string) ($auth['user']['DepositoId'] ?? '');
 
     $pdo->beginTransaction();
+    $paso = 'inicio';
     try {
+        $paso = 'buscar_nota';
         $stmt = $pdo->prepare(notas_traslado_base_select() . ' WHERE n.Id = :id AND n.Estado = 1 LIMIT 1 FOR UPDATE');
         $stmt->execute(['id' => $notaId]);
         $nota = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -1447,6 +1449,7 @@ function handle_notas_traslado_transporte_externo(PDO $pdo, array $config, strin
             return;
         }
 
+        $paso = 'actualizar_nota';
         $upd = $pdo->prepare(
             'UPDATE NotasTraslado
              SET StatusNotaTrasladoId = :status,
@@ -1474,6 +1477,7 @@ function handle_notas_traslado_transporte_externo(PDO $pdo, array $config, strin
             throw new RuntimeException('No se pudo actualizar el estado de la Nota de Traslado.');
         }
 
+        $paso = 'registrar_traza';
         notas_traslado_registrar_traza(
             $pdo,
             $notaId,
@@ -1482,18 +1486,28 @@ function handle_notas_traslado_transporte_externo(PDO $pdo, array $config, strin
             "Despacho asigno transporte externo: {$apellido}, {$nombre} - DNI {$dni}.",
             $usuarioId
         );
+        $paso = 'registrar_log';
         notas_traslado_registrar_log(
             $pdo,
             $usuarioId,
-            'Asignación Transporte Externo Nota de Traslado: ' . (string) $nota['NumeroNota']
+            'Asignacion Transporte Externo Nota de Traslado: ' . (string) $nota['NumeroNota']
         );
 
+        $paso = 'commit';
         $pdo->commit();
         json_response(['ok' => true, 'message' => 'Transporte externo asignado correctamente.'], 200, $config);
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
         }
+        error_log(
+            '[notas_traslado] Error asignando transporte externo.'
+            . ' paso=' . $paso
+            . ' notaId=' . $notaId
+            . ' empresaId=' . $empresaId
+            . ' usuarioId=' . $usuarioId
+            . ' error=' . get_class($e) . ': ' . $e->getMessage()
+        );
         throw $e;
     }
 }
