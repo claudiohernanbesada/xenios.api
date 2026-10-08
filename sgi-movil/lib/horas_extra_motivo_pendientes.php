@@ -35,14 +35,16 @@ function horas_extra_motivo_pendientes_enviar(PDO $pdo, array $config): array
         $tienePendientes = false;
         foreach ($usuario['areas'] as $area) {
             $cantidad = (int) ($pendientesPorArea[$area['id']] ?? 0);
+            if ($cantidad <= 0) {
+                continue;
+            }
+
             $areas[] = [
                 'id' => $area['id'],
                 'nombre' => $area['nombre'],
                 'pendientes' => $cantidad,
             ];
-            if ($cantidad > 0) {
-                $tienePendientes = true;
-            }
+            $tienePendientes = true;
         }
 
         if (!$tienePendientes) {
@@ -53,18 +55,20 @@ function horas_extra_motivo_pendientes_enviar(PDO $pdo, array $config): array
         $nombre = trim($usuario['nombre'] . ' ' . $usuario['apellido']);
         $html = horas_extra_motivo_mail_html($mailConfig, $nombre, $areas, $desde, $hasta);
         $texto = horas_extra_motivo_mail_texto($nombre, $areas, $desde, $hasta);
-        $enviado = horas_extra_motivo_send_html_mail(
+        $envio = horas_extra_motivo_send_html_mail(
             $mailConfig,
             $usuario['mail'],
             'Horas extras pendientes de tipificar',
             $html,
             $texto
         );
+        $enviado = (bool) ($envio['ok'] ?? false);
 
         $resultado['detalle'][] = [
             'mail' => $usuario['mail'],
             'areas' => $areas,
             'enviado' => $enviado,
+            'error' => $envio['error'] ?? null,
         ];
 
         if ($enviado) {
@@ -320,7 +324,8 @@ function horas_extra_motivo_mail_texto(string $nombre, array $areas, DateTimeImm
     return implode("\n", $lineas);
 }
 
-function horas_extra_motivo_send_html_mail(array $mailConfig, string $toMail, string $subject, string $html, string $text): bool
+/** @return array{ok:bool,error?:string} */
+function horas_extra_motivo_send_html_mail(array $mailConfig, string $toMail, string $subject, string $html, string $text): array
 {
     $from = (string) $mailConfig['mail_from'];
     $fromName = (string) $mailConfig['mail_from_name'];
@@ -333,14 +338,16 @@ function horas_extra_motivo_send_html_mail(array $mailConfig, string $toMail, st
     $timeout = max(5, (int) ($smtp['timeout_seconds'] ?? 20));
 
     if ($host === '' || $username === '' || $password === '') {
-        error_log('[horas_extra_motivo] Configuracion SMTP incompleta');
-        return false;
+        $error = 'Configuracion SMTP incompleta';
+        error_log('[horas_extra_motivo] ' . $error);
+        return ['ok' => false, 'error' => $error];
     }
 
     $socket = @stream_socket_client(($encryption === 'ssl' ? 'ssl://' : 'tcp://') . $host . ':' . $port, $errno, $errstr, $timeout, STREAM_CLIENT_CONNECT);
     if (!is_resource($socket)) {
-        error_log('[horas_extra_motivo] No se pudo conectar al SMTP: ' . $errstr . ' (' . $errno . ')');
-        return false;
+        $error = 'No se pudo conectar al SMTP: ' . $errstr . ' (' . $errno . ')';
+        error_log('[horas_extra_motivo] ' . $error);
+        return ['ok' => false, 'error' => $error];
     }
     stream_set_timeout($socket, $timeout);
 
@@ -364,11 +371,12 @@ function horas_extra_motivo_send_html_mail(array $mailConfig, string $toMail, st
         password_reset_smtp_expect($socket, [250]);
         password_reset_smtp_command($socket, 'QUIT', [221]);
         fclose($socket);
-        return true;
+        return ['ok' => true];
     } catch (Throwable $e) {
-        error_log('[horas_extra_motivo] Error SMTP: ' . $e->getMessage());
+        $error = 'Error SMTP: ' . $e->getMessage();
+        error_log('[horas_extra_motivo] ' . $error);
         @fclose($socket);
-        return false;
+        return ['ok' => false, 'error' => $error];
     }
 }
 
