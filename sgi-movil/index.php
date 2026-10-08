@@ -144,8 +144,25 @@ function compare_app_versions(string $left, string $right): int
 
 function handle_horas_extra_motivo_pendientes_mail(PDO $pdo, array $config): void
 {
-    $resultado = horas_extra_motivo_pendientes_enviar($pdo, $config);
-    json_response($resultado, $resultado['ok'] ? 200 : 500, $config);
+    try {
+        $resultado = horas_extra_motivo_pendientes_enviar($pdo, $config);
+        error_log('[horas_extra_motivo] Resultado envio pendientes: ' . json_encode([
+            'ok' => $resultado['ok'],
+            'desde' => $resultado['desde'] ?? null,
+            'hasta' => $resultado['hasta'] ?? null,
+            'usuariosEvaluados' => $resultado['usuariosEvaluados'] ?? null,
+            'enviados' => $resultado['enviados'] ?? null,
+            'omitidos' => $resultado['omitidos'] ?? null,
+            'errores' => $resultado['errores'] ?? null,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        json_response($resultado, 200, $config);
+    } catch (Throwable $e) {
+        error_log('[horas_extra_motivo] Error enviando pendientes: ' . $e->getMessage());
+        json_response([
+            'ok' => false,
+            'message' => 'Error interno al enviar notificaciones de horas extras pendientes.',
+        ], 500, $config);
+    }
 }
 
 function normalize_app_version(string $version): array

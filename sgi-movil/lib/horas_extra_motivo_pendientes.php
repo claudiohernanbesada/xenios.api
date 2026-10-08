@@ -12,8 +12,11 @@ function horas_extra_motivo_pendientes_enviar(PDO $pdo, array $config): array
 {
     $desde = new DateTimeImmutable(HEMP_FECHA_INICIO);
     $hasta = new DateTimeImmutable('today');
+    error_log('[horas_extra_motivo] Iniciando calculo de pendientes desde ' . $desde->format('Y-m-d') . ' hasta ' . $hasta->format('Y-m-d'));
     $pendientesPorArea = horas_extra_motivo_pendientes_por_area($pdo, $config, $desde, $hasta);
+    error_log('[horas_extra_motivo] Areas con pendientes: ' . count($pendientesPorArea));
     $usuarios = horas_extra_motivo_usuarios_destinatarios($pdo);
+    error_log('[horas_extra_motivo] Usuarios destinatarios encontrados: ' . count($usuarios));
 
     $resultado = [
         'ok' => true,
