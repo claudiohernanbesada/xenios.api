@@ -65,7 +65,7 @@ function reportes_sgi_empleados(
 
     $sql = 'SELECT p.Id, p.Legajo, p.Nombre, p.Apellido, p.Foto, p.Estado, p.FechaBaja,
                    p.HorarioIngreso, p.HorarioSalida, p.HorasExtras, p.TipoContratacionId,
-                   tc.NombreTipoContratacion, a.Nombre AS AreaNombre, d.Nombre AS Sede
+                   p.ArealId, tc.NombreTipoContratacion, a.Nombre AS AreaNombre, d.Nombre AS Sede
             FROM Personal p
             LEFT JOIN TipoContratacion tc ON tc.Id = p.TipoContratacionId
             LEFT JOIN Area a ON a.Id = p.ArealId

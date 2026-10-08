@@ -19,6 +19,7 @@ require_once __DIR__ . '/lib/notas_traslado.php';
 require_once __DIR__ . '/lib/usuarios.php';
 require_once __DIR__ . '/lib/areas.php';
 require_once __DIR__ . '/lib/reportes_sgi.php';
+require_once __DIR__ . '/lib/horas_extra_motivo_pendientes.php';
 
 $config = require __DIR__ . '/config.php';
 apply_cors($config);
@@ -81,6 +82,7 @@ try {
         $method === 'GET' && $path === '/reportes/asistencia' => handle_reporte_asistencia_sgi($pdo, $config),
         $method === 'GET' && $path === '/reportes/asistencia-detallada' => handle_reporte_asistencia_detallada_sgi($pdo, $config),
         $method === 'GET' && $path === '/reportes/horas-trabajadas' => handle_reporte_horas_trabajadas_sgi($pdo, $config),
+        $method === 'POST' && $path === '/horas-extras/motivos-pendientes/enviar-mail' => handle_horas_extra_motivo_pendientes_mail($pdo, $config),
         $method === 'GET' && $path === '/notas-traslado' => handle_notas_traslado_list($pdo, $config),
         $method === 'POST' && $path === '/notas-traslado/scan' => handle_notas_traslado_scan($pdo, $config),
         $method === 'POST' && $path === '/novedades' => handle_novedades_enviar($pdo, $config),
@@ -138,6 +140,12 @@ function compare_app_versions(string $left, string $right): int
     }
 
     return 0;
+}
+
+function handle_horas_extra_motivo_pendientes_mail(PDO $pdo, array $config): void
+{
+    $resultado = horas_extra_motivo_pendientes_enviar($pdo, $config);
+    json_response($resultado, $resultado['ok'] ? 200 : 500, $config);
 }
 
 function normalize_app_version(string $version): array
