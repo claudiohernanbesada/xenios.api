@@ -11,13 +11,10 @@ function auth_salida_daily_report_config(array $config): array
     $logoPath = getenv('SGI_AUTH_SALIDA_REPORT_LOGO_PATH') ?: dirname(__DIR__) . '/assets/logoRAEI.png';
 
     return [
-        'mail_from' => getenv('SGI_AUTH_SALIDA_REPORT_FROM') ?: 'noreply@raei.com.ar',
-        'mail_from_name' => getenv('SGI_AUTH_SALIDA_REPORT_FROM_NAME') ?: 'No Reply - Metalúrgica RAEI S.A.',
+        'mail_from' => (string) ($pr['mail_from'] ?? 'noreply@raei.com.ar'),
+        'mail_from_name' => (string) ($pr['mail_from_name'] ?? 'No Reply - Metalúrgica RAEI S.A.'),
         'mail_logo_path' => is_file($logoPath) ? $logoPath : (string) ($pr['mail_logo_path'] ?? ''),
-        'smtp' => array_merge($pr['smtp'] ?? [], [
-            'username' => getenv('SGI_AUTH_SALIDA_REPORT_SMTP_USERNAME') ?: 'noreply@raei.com.ar',
-            'password' => getenv('SGI_AUTH_SALIDA_REPORT_SMTP_PASSWORD') ?: (string) (($pr['smtp'] ?? [])['password'] ?? ''),
-        ]),
+        'smtp' => $pr['smtp'] ?? [],
     ];
 }
 
