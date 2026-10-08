@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/reportes_sgi.php';
-require_once __DIR__ . '/password_reset.php';
+require_once __DIR__ . '/auth_salida_daily_report.php';
 
 const HEMP_ROL = 'CENTRO_OPERACIONES_MOTIVO_HE';
 const HEMP_FECHA_INICIO = '2026-10-01';
@@ -29,7 +29,7 @@ function horas_extra_motivo_pendientes_enviar(PDO $pdo, array $config): array
         'detalle' => [],
     ];
 
-    $mailConfig = password_reset_config($config);
+    $mailConfig = auth_salida_daily_report_config($config);
     foreach ($usuarios as $usuario) {
         $areas = [];
         $tienePendientes = false;
