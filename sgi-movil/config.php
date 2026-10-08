@@ -72,13 +72,28 @@ if (!function_exists('sgi_movil_env_int')) {
     }
 }
 
-$appVersionFromEnvFile = sgi_movil_dotenv_value('EXPO_PUBLIC_APP_VERSION', [
+$sgiMovilEnvPaths = [
     getenv('SGI_MOVIL_ENV_FILE') ?: '',
     __DIR__ . '/.env',
     dirname(__DIR__) . '/.env',
     dirname(__DIR__, 2) . '/.env',
     '/var/www/vhost/apiSgiRAEI/www/apiSgiRAEI/.env',
-]);
+];
+
+if (!function_exists('sgi_movil_env_value')) {
+    function sgi_movil_env_value(string $key, array $paths, string $default = ''): string
+    {
+        $value = getenv($key);
+        if ($value !== false && trim((string) $value) !== '') {
+            return trim((string) $value);
+        }
+
+        $dotenvValue = sgi_movil_dotenv_value($key, $paths);
+        return $dotenvValue !== '' ? $dotenvValue : $default;
+    }
+}
+
+$appVersionFromEnvFile = sgi_movil_dotenv_value('EXPO_PUBLIC_APP_VERSION', $sgiMovilEnvPaths);
 $publishedAppVersion = $appVersionFromEnvFile !== '' ? $appVersionFromEnvFile : '1.0.0';
 
 $dbCredentials = (static function (): array {
@@ -109,12 +124,12 @@ return [
     'cors_origin' => '*',
     // Clave única para endpoints de administración / sistemas externos (header X-API-KEY)
     'api_key' => sgi_api_token_esperado(),
-    'sgi_web_base_url' => rtrim((string) (getenv('SGI_WEB_BASE_URL') ?: 'https://sgi.raei.com.ar'), '/'),
+    'sgi_web_base_url' => rtrim(sgi_movil_env_value('SGI_WEB_BASE_URL', $sgiMovilEnvPaths, 'https://sgi.raei.com.ar'), '/'),
     'app_version' => [
         'android_latest_version' => $publishedAppVersion,
-        'android_store_url' => getenv('SGI_MOVIL_ANDROID_STORE_URL') ?: 'https://play.google.com/store/apps/details?id=ar.com.raei.sgi',
+        'android_store_url' => sgi_movil_env_value('SGI_MOVIL_ANDROID_STORE_URL', $sgiMovilEnvPaths, 'https://play.google.com/store/apps/details?id=ar.com.raei.sgi'),
         'ios_latest_version' => $publishedAppVersion,
-        'ios_store_url' => getenv('SGI_MOVIL_IOS_STORE_URL') ?: '',
+        'ios_store_url' => sgi_movil_env_value('SGI_MOVIL_IOS_STORE_URL', $sgiMovilEnvPaths),
     ],
     'asistencia_calculo' => [
         'max_duracion_jornada_horas' => sgi_movil_env_int('ASISTENCIA_CALCULO_MAX_DURACION_JORNADA_HORAS', 13),
@@ -143,25 +158,25 @@ return [
         ],
     ],
     'password_reset' => [
-        'public_base_url' => getenv('SGI_PASSWORD_RESET_URL') ?: 'https://api.raei.com.ar/sgi-movil/reset-password',
+        'public_base_url' => sgi_movil_env_value('SGI_PASSWORD_RESET_URL', $sgiMovilEnvPaths, 'https://api.raei.com.ar/sgi-movil/reset-password'),
         'ttl_seconds' => 60 * 30,
-        'mail_from' => getenv('SGI_MAIL_FROM') ?: 'norepply@raei.com.ar',
-        'mail_from_name' => getenv('SGI_MAIL_DISPLAY_NAME') ?: 'No Reply - Metalúrgica RAEI',
+        'mail_from' => sgi_movil_env_value('SGI_MAIL_FROM', $sgiMovilEnvPaths, 'norepply@raei.com.ar'),
+        'mail_from_name' => sgi_movil_env_value('SGI_MAIL_DISPLAY_NAME', $sgiMovilEnvPaths, 'No Reply - Metalúrgica RAEI'),
         'mail_logo_path' => sgi_movil_first_existing_file([
-            getenv('SGI_MAIL_LOGO_PATH') ?: '',
+            sgi_movil_env_value('SGI_MAIL_LOGO_PATH', $sgiMovilEnvPaths),
             __DIR__ . '/assets/logoRAEI.png',
             __DIR__ . '/reset-password/logo-raei.png',
             'C:\Trabajos\www\sgiRAEI\sgiRAEI\wwwroot\img\logoRaei.png',
         ]),
-        'app_login_url' => getenv('SGI_APP_LOGIN_URL') ?: 'sgi://login',
+        'app_login_url' => sgi_movil_env_value('SGI_APP_LOGIN_URL', $sgiMovilEnvPaths, 'sgi://login'),
         'smtp' => [
-            'host' => getenv('SGI_SMTP_HOST') ?: 'smtp.office365.com',
-            'port' => (int) (getenv('SGI_SMTP_PORT') ?: 587),
-            'username' => getenv('SGI_SMTP_USERNAME') ?: 'norepply@raei.com.ar',
-            'password' => getenv('SGI_SMTP_PASSWORD') ?: '',
-            'ssl' => filter_var(getenv('SGI_SMTP_SSL') ?: 'true', FILTER_VALIDATE_BOOLEAN),
-            'encryption' => getenv('SGI_SMTP_ENCRYPTION') ?: 'tls',
-            'timeout_seconds' => (int) (getenv('SGI_SMTP_TIMEOUT_SECONDS') ?: 20),
+            'host' => sgi_movil_env_value('SGI_SMTP_HOST', $sgiMovilEnvPaths, 'smtp.office365.com'),
+            'port' => (int) sgi_movil_env_value('SGI_SMTP_PORT', $sgiMovilEnvPaths, '587'),
+            'username' => sgi_movil_env_value('SGI_SMTP_USERNAME', $sgiMovilEnvPaths, 'norepply@raei.com.ar'),
+            'password' => sgi_movil_env_value('SGI_SMTP_PASSWORD', $sgiMovilEnvPaths),
+            'ssl' => filter_var(sgi_movil_env_value('SGI_SMTP_SSL', $sgiMovilEnvPaths, 'true'), FILTER_VALIDATE_BOOLEAN),
+            'encryption' => sgi_movil_env_value('SGI_SMTP_ENCRYPTION', $sgiMovilEnvPaths, 'tls'),
+            'timeout_seconds' => (int) sgi_movil_env_value('SGI_SMTP_TIMEOUT_SECONDS', $sgiMovilEnvPaths, '20'),
         ],
     ],
 ];
