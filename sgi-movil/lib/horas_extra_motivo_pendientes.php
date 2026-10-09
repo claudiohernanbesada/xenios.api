@@ -285,11 +285,19 @@ function horas_extra_motivo_mail_html(array $mailConfig, string $nombre, array $
         ? '<div style="margin:0 0 24px;"><img src="cid:logo-raei-reset" alt="RAEI" style="display:inline-block;max-width:170px;height:auto;border:0;" /></div>'
         : '';
     $filas = '';
+    $totalPendientes = 0;
+    $rowIndex = 0;
     foreach ($areas as $area) {
-        $filas .= '<tr>'
-            . '<td style="padding:11px 14px;background:#ffffff;font-weight:700;color:#111827;border-bottom:1px solid #e5e7eb;">' . htmlspecialchars($area['nombre'], ENT_QUOTES, 'UTF-8') . '</td>'
-            . '<td style="padding:11px 14px;background:#ffffff;color:#0d6efd;font-weight:700;text-align:right;border-bottom:1px solid #e5e7eb;">' . (int) $area['pendientes'] . '</td>'
+        $cantidad = (int) $area['pendientes'];
+        $totalPendientes += $cantidad;
+        $rowBg = $rowIndex % 2 === 0 ? '#ffffff' : '#f9fafb';
+        $filas .= '<tr style="background:' . $rowBg . ';">'
+            . '<td style="padding:13px 16px;background:' . $rowBg . ';font-weight:600;color:#111827;border-bottom:1px solid #e5e7eb;">' . htmlspecialchars(trim((string) $area['nombre']), ENT_QUOTES, 'UTF-8') . '</td>'
+            . '<td style="padding:13px 16px;background:' . $rowBg . ';text-align:right;border-bottom:1px solid #e5e7eb;">'
+            . '<span style="display:inline-block;min-width:42px;padding:4px 10px;border-radius:999px;background:#eef4ff;color:#0d47a1;font-weight:700;text-align:center;">' . $cantidad . '</span>'
+            . '</td>'
             . '</tr>';
+        $rowIndex++;
     }
 
     return '<!DOCTYPE html><html lang="es"><body style="margin:0;padding:24px;background:#ffffff;color:#202124;font-family:Segoe UI,Arial,sans-serif;font-size:14px;line-height:1.5;">'
@@ -298,11 +306,20 @@ function horas_extra_motivo_mail_html(array $mailConfig, string $nombre, array $
         . '<p style="margin:0 0 12px;font-weight:700;">Buen día' . ($nombre !== '' ? ', ' . htmlspecialchars($nombre, ENT_QUOTES, 'UTF-8') : '') . '.</p>'
         . '<p style="margin:0 0 18px;">Hay registros de horas extras pendientes de tipificar en el SGI (Sistema de Gestión Interna).</p>'
         . '<p style="margin:0 0 18px;">Período evaluado: <strong>' . $desde->format('d/m/Y') . '</strong> al <strong>' . $hasta->format('d/m/Y') . '</strong>.</p>'
-        . '<table cellpadding="0" cellspacing="0" role="presentation" style="width:520px;max-width:100%;border-collapse:separate;border-spacing:0;border:1px solid #d1d5db;border-radius:8px;overflow:hidden;background:#ffffff;">'
-        . '<tr><th colspan="2" style="padding:12px 14px;background:#dc3545;color:#ffffff;text-align:left;font-size:15px;font-weight:700;">Cargas Pendientes</th></tr>'
-        . '<tr><td style="padding:11px 14px;background:#ffffff;font-weight:700;color:#111827;border-bottom:1px solid #e5e7eb;">Área</td><td style="padding:11px 14px;background:#ffffff;font-weight:700;color:#111827;text-align:right;border-bottom:1px solid #e5e7eb;">Pendientes</td></tr>'
+        . '<table cellpadding="0" cellspacing="0" role="presentation" style="width:560px;max-width:100%;border-collapse:separate;border-spacing:0;border:1px solid #d7dde6;border-radius:10px;overflow:hidden;background:#ffffff;box-shadow:0 4px 14px rgba(17,24,39,0.08);">'
+        . '<tr><th colspan="2" style="padding:15px 18px;background:#dc3545;color:#ffffff;text-align:left;font-size:16px;font-weight:700;letter-spacing:0;">Cargas Pendientes</th></tr>'
+        . '<tr>'
+        . '<td style="padding:10px 16px;background:#f3f4f6;font-size:12px;font-weight:700;color:#4b5563;text-transform:uppercase;border-bottom:1px solid #e5e7eb;">Área</td>'
+        . '<td style="padding:10px 16px;background:#f3f4f6;font-size:12px;font-weight:700;color:#4b5563;text-transform:uppercase;text-align:right;border-bottom:1px solid #e5e7eb;">Registros pendientes</td>'
+        . '</tr>'
         . $filas
+        . '<tr>'
+        . '<td style="padding:14px 16px;background:#f3f4f6;font-weight:800;color:#111827;">Total</td>'
+        . '<td style="padding:14px 16px;background:#f3f4f6;text-align:right;color:#111827;font-weight:800;">' . $totalPendientes . '</td>'
+        . '</tr>'
         . '</table>'
+        . '<div style="height:18px;line-height:18px;">&nbsp;</div>'
+        . '<p style="margin:0 0 18px;color:#374151;">Se solicita completar en el SGI los registros de horas extras pendientes de definir el motivo.</p>'
         . '<p style="margin:24px 0 0;color:#374151;">Desde ya muchas gracias!<br><strong>SGI (Sistema de Gestión Interna)</strong><br>Metalúrgica RAEI S.A.</p>'
         . '</div></body></html>';
 }
