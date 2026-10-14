@@ -1472,8 +1472,9 @@ function ht_obtener_turno_asignado(
             $fin = $fin->modify('+1 day');
         }
 
-        $dif = abs(($entrada->getTimestamp() - $ini->getTimestamp()) / 60)
-            + abs(($salida->getTimestamp() - $fin->getTimestamp()) / 60);
+        $difEntrada = abs(($entrada->getTimestamp() - $ini->getTimestamp()) / 60);
+        $difSalida = abs(($salida->getTimestamp() - $fin->getTimestamp()) / 60);
+        $dif = $difEntrada + ($difSalida * 2);
         $coincideHorarioEmpleado = $ingresoEmpleado !== null
             && $salidaEmpleado !== null
             && $t['Entrada'] === $ingresoEmpleado
