@@ -112,14 +112,18 @@ return [
     'db' => $dbCredentials + [
         'charset' => 'utf8mb4',
     ],
-    // Secret del JWT — cambiarlo en prod, obvio
-    'jwt_secret' => 'sgi-movil-dev-cambiar-en-produccion-2026',
+    // Clave privada del servidor; no incluir en la app ni usar un valor fijo de desarrollo.
+    'jwt_secret' => sgi_movil_env_value('SGI_JWT_SECRET', $sgiMovilEnvPaths),
     // Token válido una semana
     'jwt_ttl_seconds' => 60 * 60 * 24 * 7,
     // Carpetas y URLs de avatares, fotos de personal, PDFs de salida, etc.
     'archivos' => sgi_rutas_archivos(),
     // Prefijo de URL donde cuelga esta API bajo Apache
     'api_base_path' => '/sgi-movil',
+    'doble_factor' => [
+        'base_url' => sgi_movil_env_value('SGI_2FA_BASE_URL', $sgiMovilEnvPaths, 'http://127.0.0.1:5090'),
+        'bridge_token' => sgi_movil_env_value('SGI_2FA_BRIDGE_TOKEN', $sgiMovilEnvPaths),
+    ],
     // Origen permitido en CORS (* en dev, restringir en prod)
     'cors_origin' => '*',
     // Clave única para endpoints de administración / sistemas externos (header X-API-KEY)

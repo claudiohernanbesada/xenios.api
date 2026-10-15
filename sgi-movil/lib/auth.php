@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 // Auth: JWT casero, roles, permisos y middleware require_auth
 require_once __DIR__ . '/response.php';
+require_once __DIR__ . '/doble_factor.php';
 
 // Hashea la clave igual que el SGI web (SHA-256 plano)
 function sha256_password(string $plain): string
@@ -32,13 +33,18 @@ function validate_password_policy(string $password): ?string
 }
 
 // Arma un JWT casero: payload en base64 + firma HMAC
-function issue_token(string $userId, string $mail, string $secret, int $ttl): string
+function issue_token(string $userId, string $mail, string $secret, int $ttl, ?string $mfaVersion = null): string
 {
+    if (strlen($secret) < 32) throw new RuntimeException('Configurar SGI_JWT_SECRET (mínimo 32 caracteres).');
     $payload = [
         'sub' => $userId,
         'mail' => $mail,
         'exp' => time() + $ttl,
     ];
+    if ($mfaVersion !== null) {
+        $payload['mfa'] = true;
+        $payload['mfaVersion'] = $mfaVersion;
+    }
     $json = json_encode($payload, JSON_THROW_ON_ERROR);
     $b64 = rtrim(strtr(base64_encode($json), '+/', '-_'), '=');
     $sig = hash_hmac('sha256', $b64, $secret);
@@ -48,6 +54,7 @@ function issue_token(string $userId, string $mail, string $secret, int $ttl): st
 // Verifica firma y expiración del token; null si no sirve
 function verify_token(string $token, string $secret): ?array
 {
+    if (strlen($secret) < 32) return null;
     $parts = explode('.', $token, 2);
     if (count($parts) !== 2) {
         return null;
@@ -357,7 +364,8 @@ function require_auth(PDO $pdo, array $config): array
     }
 
     $stmt = $pdo->prepare(
-        'SELECT Id, Nombre, Apellido, Mail, Estado, ImgPerfil, DepositoId
+        'SELECT Id, Nombre, Apellido, Mail, Estado, ImgPerfil, DepositoId,
+                RequiereDobleFactor, DobleFactorVersion, (DobleFactorSecreto IS NOT NULL) AS DobleFactorConfigurado
          FROM Usuarios WHERE Id = :id LIMIT 1'
     );
     $stmt->execute(['id' => $userId]);
@@ -367,6 +375,10 @@ function require_auth(PDO $pdo, array $config): array
         exit;
     }
 
+    if (!doble_factor_token_valido($user, $payload)) {
+        json_response(['message' => 'La sesión requiere verificar el doble factor. Iniciá sesión nuevamente.'], 401, $config);
+        exit;
+    }
     $roles = fetch_user_roles($pdo, $userId);
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
     $path = current_api_path($config);
@@ -416,7 +428,8 @@ function require_auth_or_web_bridge(PDO $pdo, array $config): array
     }
 
     $stmt = $pdo->prepare(
-        'SELECT Id, Nombre, Apellido, Mail, Estado, ImgPerfil, DepositoId
+        'SELECT Id, Nombre, Apellido, Mail, Estado, ImgPerfil, DepositoId,
+                RequiereDobleFactor, DobleFactorVersion, (DobleFactorSecreto IS NOT NULL) AS DobleFactorConfigurado
          FROM Usuarios WHERE Id = :id LIMIT 1'
     );
     $stmt->execute(['id' => $userId]);
@@ -426,6 +439,10 @@ function require_auth_or_web_bridge(PDO $pdo, array $config): array
         exit;
     }
 
+    if (!doble_factor_puente_web_valido($config, $user, $timestamp)) {
+        json_response(['message' => 'El acceso web requiere una verificación de doble factor válida.'], 401, $config);
+        exit;
+    }
     $roles = fetch_user_roles($pdo, $userId);
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
     $path = current_api_path($config);

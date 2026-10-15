@@ -59,6 +59,7 @@ try {
     match (true) {
         $method === 'GET' && $path === '/app-version' => handle_app_version($pdo, $config),
         $method === 'POST' && $path === '/auth/login' => handle_login($pdo, $config),
+        $method === 'POST' && $path === '/auth/doble-factor' => handle_doble_factor($pdo, $config),
         $method === 'POST' && $path === '/auth/logout' => handle_logout($pdo, $config),
         $method === 'POST' && $path === '/auth/recuperar-clave' => handle_recuperar_clave_solicitud($pdo, $config),
         $method === 'GET' && $path === '/auth/recuperar-clave/validar' => handle_recuperar_clave_validar($pdo, $config),
@@ -255,6 +256,11 @@ function handle_recuperar_clave_completar(PDO $pdo, array $config): void
 // POST /auth/login — mail + clave, devuelve JWT y datos del usuario
 function handle_login(PDO $pdo, array $config): void
 {
+    header('Cache-Control: no-store');
+    if (strlen((string) ($config['jwt_secret'] ?? '')) < 32) {
+        json_response(['message' => 'El inicio de sesión no está configurado. Contactá al administrador.'], 503, $config);
+        return;
+    }
     $body = json_decode(file_get_contents('php://input') ?: '{}', true) ?? [];
     $correo = strtolower(trim((string) ($body['correo'] ?? '')));
     $clave = (string) ($body['clave'] ?? '');
@@ -265,7 +271,7 @@ function handle_login(PDO $pdo, array $config): void
     }
 
     $stmt = $pdo->prepare(
-        'SELECT Id, Nombre, Apellido, Mail, Estado, ImgPerfil
+        'SELECT Id, Nombre, Apellido, Mail, Estado, ImgPerfil, RequiereDobleFactor, DobleFactorVersion
          FROM Usuarios
          WHERE LOWER(Mail) = :mail AND Passwd = :passwd AND Estado > 0 AND Estado < 3
          LIMIT 1'
@@ -282,6 +288,59 @@ function handle_login(PDO $pdo, array $config): void
         return;
     }
 
+    if ((bool) $user['RequiereDobleFactor']) {
+        try {
+            $result = doble_factor_solicitar($config, 'iniciar', ['usuarioId' => $user['Id'], 'credencial' => sha256_password($clave)]);
+            if ($result['status'] !== 200) {
+                json_response(['message' => $result['data']['message'] ?? 'No se pudo iniciar la verificación. Volvé a ingresar.'], $result['status'], $config);
+                return;
+            }
+            json_response($result['data'], 200, $config);
+        } catch (Throwable $e) {
+            error_log('[sgi-movil] No se pudo iniciar doble factor.');
+            json_response(['message' => 'La verificación de doble factor no está disponible. Intentá más tarde.'], 503, $config);
+        }
+        return;
+    }
+    completar_login_movil($pdo, $config, $user);
+}
+
+function handle_doble_factor(PDO $pdo, array $config): void
+{
+    header('Cache-Control: no-store');
+    $body = json_decode(file_get_contents('php://input') ?: '{}', true) ?? [];
+    $desafio = (string) ($body['desafio'] ?? '');
+    $codigo = (string) ($body['codigo'] ?? '');
+    if ($desafio === '' || strlen($desafio) > 2048 || !preg_match('/^[0-9]{6}$/D', $codigo)) {
+        json_response(['message' => 'Ingresá el código de seis dígitos del autenticador.'], 400, $config);
+        return;
+    }
+    try {
+        $result = doble_factor_solicitar($config, 'verificar', ['desafio' => $desafio, 'codigo' => $codigo]);
+        if ($result['status'] !== 200) {
+            json_response(['message' => $result['data']['message'] ?? 'Verificación inválida. Volvé a iniciar sesión.'], $result['status'], $config);
+            return;
+        }
+        if (!doble_factor_prueba_valida($config, $result['data'])) throw new RuntimeException('Prueba de segundo factor inválida.');
+        $stmt = $pdo->prepare('SELECT Id, Nombre, Apellido, Mail, Estado, ImgPerfil, RequiereDobleFactor,
+            DobleFactorVersion, (DobleFactorSecreto IS NOT NULL) AS DobleFactorConfigurado FROM Usuarios WHERE Id = :id LIMIT 1');
+        $stmt->execute(['id' => $result['data']['usuarioId']]);
+        $user = $stmt->fetch();
+        $version = (string) $result['data']['version'];
+        if (!$user || (int) $user['Estado'] !== 1 || !doble_factor_token_valido($user, ['mfa' => true, 'mfaVersion' => $version])) {
+            json_response(['message' => 'La configuración del usuario cambió. Volvé a iniciar sesión.'], 401, $config);
+            return;
+        }
+        completar_login_movil($pdo, $config, $user, $version);
+    } catch (Throwable $e) {
+        error_log('[sgi-movil] No se pudo completar doble factor.');
+        json_response(['message' => 'La verificación de doble factor no está disponible. Intentá más tarde.'], 503, $config);
+    }
+}
+
+function completar_login_movil(PDO $pdo, array $config, array $user, ?string $mfaVersion = null): void
+{
+    $correo = (string) $user['Mail'];
     $stmtLogin = $pdo->prepare(
         'UPDATE Usuarios SET LastLogin = NOW(), Plataforma = :plataforma WHERE Id = :id'
     );
@@ -298,7 +357,8 @@ function handle_login(PDO $pdo, array $config): void
         (string) $user['Id'],
         $correo,
         $config['jwt_secret'],
-        (int) $config['jwt_ttl_seconds']
+        (int) $config['jwt_ttl_seconds'],
+        $mfaVersion
     );
 
     json_response([
