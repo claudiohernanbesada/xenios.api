@@ -2,6 +2,15 @@
 declare(strict_types=1);
 
 // El secreto TOTP solo se descifra en SGI .NET, nunca en PHP.
+function doble_factor_error(array $result, string $fallback): array
+{
+    $body = ['message' => $result['data']['message'] ?? $fallback];
+    if ($result['status'] === 429 && is_array($result['data']['bloqueo'] ?? null)) {
+        $body['bloqueo'] = $result['data']['bloqueo'];
+    }
+    return $body;
+}
+
 function doble_factor_config(array $config): array
 {
     $options = $config['doble_factor'] ?? [];

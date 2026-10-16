@@ -292,7 +292,7 @@ function handle_login(PDO $pdo, array $config): void
         try {
             $result = doble_factor_solicitar($config, 'iniciar', ['usuarioId' => $user['Id'], 'credencial' => sha256_password($clave)]);
             if ($result['status'] !== 200) {
-                json_response(['message' => $result['data']['message'] ?? 'No se pudo iniciar la verificación. Volvé a ingresar.'], $result['status'], $config);
+                json_response(doble_factor_error($result, 'No se pudo iniciar la verificación. Volvé a ingresar.'), $result['status'], $config);
                 return;
             }
             json_response($result['data'], 200, $config);
@@ -318,7 +318,7 @@ function handle_doble_factor(PDO $pdo, array $config): void
     try {
         $result = doble_factor_solicitar($config, 'verificar', ['desafio' => $desafio, 'codigo' => $codigo]);
         if ($result['status'] !== 200) {
-            json_response(['message' => $result['data']['message'] ?? 'Verificación inválida. Volvé a iniciar sesión.'], $result['status'], $config);
+            json_response(doble_factor_error($result, 'Verificación inválida. Volvé a iniciar sesión.'), $result['status'], $config);
             return;
         }
         if (!doble_factor_prueba_valida($config, $result['data'])) throw new RuntimeException('Prueba de segundo factor inválida.');
