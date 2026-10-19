@@ -724,7 +724,7 @@ function ht_procesar_grupo_dia_fichadas(
     }
 
     // Una salida autorizada puede completar la jornada fuera del establecimiento.
-    // Su regreso orienta el turno, pero no genera extras por fichadas inexistentes.
+    // Su regreso orienta el turno; los tramos sin recupero también cubren trabajo externo.
     $salidaReferencia = $salida;
     foreach ($authsDia as $auth) {
         $fechaRegreso = !empty($auth['FechaHoraRegresoEfectiva'])
@@ -803,6 +803,18 @@ function ht_procesar_grupo_dia_fichadas(
     $limite = $dow === 6 ? HT_LIMITE_EXTRA_SABADO : HT_LIMITE_EXTRA_SEMANA;
     if ($entrada < $iniAsig) {
         $finExtraEntrada = $salida < $iniAsig ? $salida : $iniAsig;
+        if ($finExtraEntrada < $iniAsig) {
+            $authsLaborales = array_values(array_filter($authsDia, static fn (array $a): bool =>
+                !filter_var($a['RequiereRecupero'] ?? true, FILTER_VALIDATE_BOOLEAN)));
+            $cubierto = ht_minutos_cubiertos_por_auth_hasta_fin_turno(
+                $authsLaborales, $datos['turnos'], $entrada, $iniAsig,
+                $entrada, $finExtraEntrada, $areaNombre, $horarioIngreso, $horarioSalida
+            );
+            $faltante = ($iniAsig->getTimestamp() - $finExtraEntrada->getTimestamp()) / 60.0;
+            if ($cubierto >= $faltante) {
+                $finExtraEntrada = $iniAsig;
+            }
+        }
         ht_acumular_extra_por_horario($entrada, $finExtraEntrada, $limite, $diaExtra50ConTope, $diaExtra100ConTope, $bloqueMinutos);
         ht_acumular_tiempo_compensable($entrada, $finExtraEntrada, $diaCompensableConTope, $bloqueMinutos);
     }
