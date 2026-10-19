@@ -119,7 +119,12 @@ function horas_trabajadas_cargar_datos(PDO $pdo, array $empleado, array $periodo
     $desde = $periodo['desde']->format('Y-m-d');
     $hasta = $periodo['hasta']->format('Y-m-d');
     $fi = $periodo['fechaInicio']->format('Y-m-d H:i:s');
-    $ff = $periodo['fechaFin']->format('Y-m-d H:i:s');
+    $ingresoNorm = ht_parse_horario_empleado($empleado['HorarioIngreso'] ?? null);
+    $salidaNorm = ht_parse_horario_empleado($empleado['HorarioSalida'] ?? null);
+    // La salida del ultimo turno nocturno puede estar en el dia calendario siguiente.
+    $finFichadas = ht_es_horario_nocturno($ingresoNorm, $salidaNorm)
+        ? $periodo['fechaFin']->modify('+1 day') : $periodo['fechaFin'];
+    $ff = $finFichadas->format('Y-m-d H:i:s');
 
     $fichadas = [];
     if ($legajo > 0) {
@@ -132,7 +137,11 @@ function horas_trabajadas_cargar_datos(PDO $pdo, array $empleado, array $periodo
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $fichadas[] = ['Fecha' => new DateTimeImmutable((string) $row['Fecha'])];
+            $fecha = new DateTimeImmutable((string) $row['Fecha']);
+            $fechaLaboral = ht_obtener_fecha_laboral_fichada($fecha, $ingresoNorm, $salidaNorm);
+            if ($fechaLaboral >= $desde && $fechaLaboral <= $hasta) {
+                $fichadas[] = ['Fecha' => $fecha];
+            }
         }
     }
 
@@ -378,6 +387,7 @@ function horas_trabajadas_procesar_empleado(array $periodo, array $datos, array 
         $datos['turnos'],
         $datos['feriados'],
         $periodo['desde'],
+        $periodo['hasta'],
         $periodo['hoy'],
         $personalId,
         $areaNombre,
@@ -935,6 +945,7 @@ function ht_tiene_fichada_incompleta(
     array $turnos,
     array $feriados,
     DateTimeImmutable $desde,
+    DateTimeImmutable $hasta,
     DateTimeImmutable $hoy,
     string $personalId,
     string $areaNombre,
@@ -949,6 +960,7 @@ function ht_tiene_fichada_incompleta(
 
     $hoyStr = $hoy->format('Y-m-d');
     $desdeStr = $desde->format('Y-m-d');
+    $hastaStr = $hasta->format('Y-m-d');
     $horarioIngresoNorm = ht_parse_horario_empleado(is_string($horarioIngreso) ? $horarioIngreso : null);
     $horarioSalidaNorm = ht_parse_horario_empleado(is_string($horarioSalida) ? $horarioSalida : null);
     $porDia = [];
@@ -958,13 +970,13 @@ function ht_tiene_fichada_incompleta(
     }
 
     foreach ($porDia as $fechaKey => $dia) {
-        if ($fechaKey < $desdeStr) {
+        if ($fechaKey < $desdeStr || $fechaKey > $hastaStr) {
             continue;
         }
         if (isset($feriados[$fechaKey])) {
             continue;
         }
-        if ($fechaKey === $hoyStr) {
+        if ($fechaKey >= $hoyStr) {
             continue;
         }
 

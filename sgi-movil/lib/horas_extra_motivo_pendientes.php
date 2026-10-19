@@ -122,6 +122,7 @@ function horas_extra_motivo_calcular_diarias(PDO $pdo, array $config, DateTimeIm
             $datos['turnos'],
             $datos['feriados'],
             $periodo['desde'],
+            $periodo['hasta'],
             $periodo['hoy'],
             $personalId,
             (string) ($empleado['AreaNombre'] ?? ''),
