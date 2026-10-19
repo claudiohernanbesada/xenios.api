@@ -100,9 +100,9 @@ function horas_extra_motivo_pendientes_por_area(PDO $pdo, array $config, DateTim
 }
 
 /** @return list<array{personalId:string,areaId:string,fecha:string}> */
-function horas_extra_motivo_calcular_diarias(PDO $pdo, array $config, DateTimeImmutable $desde, DateTimeImmutable $hasta): array
+function horas_extra_motivo_calcular_diarias(PDO $pdo, array $config, DateTimeImmutable $desde, DateTimeImmutable $hasta, ?int $tipoContratacionId = null, array $areaIds = []): array
 {
-    $empleados = reportes_sgi_empleados($pdo, $desde, $hasta, null, null, []);
+    $empleados = reportes_sgi_empleados($pdo, $desde, $hasta, $tipoContratacionId, null, $areaIds);
     $filas = [];
 
     foreach ($empleados as $empleado) {
@@ -199,8 +199,14 @@ function horas_extra_motivo_diarias_empleado(array $periodo, array $datos, array
             $horasExtrasFlag
         );
 
-        if (ht_redondear_hora_extra_completa($extra50) > 0 || ht_redondear_hora_extra_completa($extra100) > 0) {
-            $filas[] = ['personalId' => $personalId, 'areaId' => $areaId, 'fecha' => $fechaKey];
+        $m50 = ht_redondear_hora_extra_completa($extra50);
+        $m100 = ht_redondear_hora_extra_completa($extra100);
+        if ($m50 > 0 || $m100 > 0) {
+            $filas[$fechaKey] = hemp_fila_diaria($empleado, $areaId, $fechaKey);
+            $filas[$fechaKey]['minutosExtra50'] = $m50;
+            $filas[$fechaKey]['minutosExtra100'] = $m100;
+            $filas[$fechaKey]['minutosFichadas50'] = $m50;
+            $filas[$fechaKey]['minutosFichadas100'] = $m100;
         }
     }
 
@@ -215,12 +221,32 @@ function horas_extra_motivo_diarias_empleado(array $periodo, array $datos, array
         $extra50 = 0.0;
         $extra100 = 0.0;
         ht_acumular_extras_segun_franja($desdeManual, $hastaManual, $extra50, $extra100, (int) ($datos['config']['fraccionamiento_minutos'] ?? 60));
-        if (ht_redondear_hora_extra_completa($extra50) > 0 || ht_redondear_hora_extra_completa($extra100) > 0) {
-            $filas[] = ['personalId' => $personalId, 'areaId' => $areaId, 'fecha' => $fechaKey];
+        $m50 = ht_redondear_hora_extra_completa($extra50);
+        $m100 = ht_redondear_hora_extra_completa($extra100);
+        if ($m50 > 0 || $m100 > 0) {
+            $filas[$fechaKey] ??= hemp_fila_diaria($empleado, $areaId, $fechaKey);
+            $filas[$fechaKey]['minutosExtra50'] += $m50;
+            $filas[$fechaKey]['minutosExtra100'] += $m100;
+            $filas[$fechaKey]['cargasManuales'][] = [
+                'minutosExtra50' => $m50, 'minutosExtra100' => $m100,
+                'motivo' => (string) ($manual['Motivo'] ?? ''),
+                'motivoActivo' => (int) ($manual['MotivoEstado'] ?? 0) === 1,
+            ];
         }
     }
+    return array_values($filas);
+}
 
-    return array_values(array_unique($filas, SORT_REGULAR));
+function hemp_fila_diaria(array $empleado, string $areaId, string $fecha): array
+{
+    return [
+        'personalId' => (string) $empleado['Id'], 'areaId' => $areaId, 'fecha' => $fecha,
+        'legajo' => (int) ($empleado['Legajo'] ?? 0),
+        'nombre' => (string) ($empleado['Nombre'] ?? ''), 'apellido' => (string) ($empleado['Apellido'] ?? ''),
+        'areaNombre' => (string) ($empleado['AreaNombre'] ?? ''),
+        'minutosExtra50' => 0, 'minutosExtra100' => 0,
+        'minutosFichadas50' => 0, 'minutosFichadas100' => 0, 'cargasManuales' => [],
+    ];
 }
 
 function horas_extra_motivo_esta_tipificada(PDO $pdo, string $cacheKey, string $personalId, string $fecha): bool

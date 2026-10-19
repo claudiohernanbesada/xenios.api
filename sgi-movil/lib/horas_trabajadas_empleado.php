@@ -12,6 +12,7 @@ const HT_TURNO_ESPECIAL_SALIDA = '23:45:00';
 const HT_TURNO_LOGISTICA_ENTRADA = '14:00:00';
 const HT_TURNO_LOGISTICA_SALIDA = '23:00:00';
 const HT_TOLERANCIA_FICHADA_FALTANTE = 60.0;
+const TOLERANCIA_MINUTOS_REGISTRO_PERSONAL = 9;
 const HT_MAXIMO_HORAS_EXTRAS_DIA = 3;
 
 /**
@@ -179,8 +180,9 @@ function horas_trabajadas_cargar_datos(PDO $pdo, array $empleado, array $periodo
     $extrasManuales = [];
     if ($personalId !== '') {
         $stmt = $pdo->prepare(
-            'SELECT Fecha, Desde, Hasta FROM HoraExtraManual
-             WHERE Estado = 1 AND PersonalId = :pid AND Fecha >= :d AND Fecha <= :h'
+            'SELECT h.Fecha, h.Desde, h.Hasta, m.Motivo, m.Estado AS MotivoEstado
+             FROM HoraExtraManual h LEFT JOIN HoraExtraManualMotivo m ON m.Id = h.MotivoId
+             WHERE h.Estado = 1 AND h.PersonalId = :pid AND h.Fecha >= :d AND h.Fecha <= :h'
         );
         $stmt->execute(['pid' => $personalId, 'd' => $desde, 'h' => $hasta]);
         $extrasManuales[$personalId] = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -732,23 +734,12 @@ function ht_procesar_grupo_dia_fichadas(
         return;
     }
 
-    $difEntrada = ($entrada->getTimestamp() - $iniAsig->getTimestamp()) / 60.0;
-    if ($difEntrada <= 9) {
-        $inicioNormal = $iniAsig;
-    } else {
-        $inicioTurnoComputable = $iniAsig->modify('+1 hour');
-        if ($inicioNormal < $inicioTurnoComputable) {
-            $inicioNormal = $inicioTurnoComputable;
-        }
-    }
-
-    $tiempoSeg = $finNormal->getTimestamp() - $inicioNormal->getTimestamp();
+    $minutosJornada = ht_minutos_sin_segundos($iniAsig, $finAsig);
     $turnoRow = $turno['turno'];
-    if ($turnoRow['Entrada'] === HT_TURNO_ESPECIAL_ENTRADA && $turnoRow['Salida'] === HT_TURNO_ESPECIAL_SALIDA) {
-        $tiempoSeg += 15 * 60;
+    if ($turnoRow['Entrada'] === HT_TURNO_ESPECIAL_ENTRADA && $turnoRow['Salida'] === HT_TURNO_ESPECIAL_SALIDA && $dow !== 5) {
+        $minutosJornada += 15;
     }
-    $minutosNormalesHoy = $tiempoSeg / 60.0;
-    $minutosNormalesHoy += ht_minutos_cubiertos_por_auth_hasta_fin_turno(
+    $minutosCubiertosPorAuth = ht_minutos_cubiertos_por_auth_hasta_fin_turno(
         $authsDia,
         $datos['turnos'],
         $iniAsig,
@@ -759,6 +750,12 @@ function ht_procesar_grupo_dia_fichadas(
         $horarioIngreso,
         $horarioSalida
     );
+
+    $minutosTarde = ($entrada->getTimestamp() - $iniAsig->getTimestamp()) / 60.0;
+    $minutosAntes = ($finAsig->getTimestamp() - $salida->getTimestamp()) / 60.0 - $minutosCubiertosPorAuth;
+    $minutosNormalesHoy = max(0, $minutosJornada
+        - ht_descuento_registro_personal($minutosTarde)
+        - ht_descuento_registro_personal($minutosAntes));
 
     if ($dow === 5 && $minutosNormalesHoy > 480) {
         $minutosExtra = $minutosNormalesHoy - 480;
@@ -777,7 +774,10 @@ function ht_procesar_grupo_dia_fichadas(
     );
 
     if (!$diaExcluido && $minutosNormalesHoy > 0) {
-        $diasTrabajo[$fechaKey] = true;
+        $anteriores = $diasTrabajo[$fechaKey]['minutosNormales'] ?? 0;
+        $maximoDia = ht_minutos_horas_trabajadas_dia_laboral($dia, $datos['feriados'], $areaNombre,
+            (int) ($datos['config']['jornada_vigilancia_horas'] ?? 12));
+        $diasTrabajo[$fechaKey] = ['minutosNormales' => min($maximoDia, $anteriores + (int) $minutosNormalesHoy)];
     }
 
     $limite = $dow === 6 ? HT_LIMITE_EXTRA_SABADO : HT_LIMITE_EXTRA_SEMANA;
@@ -1039,6 +1039,11 @@ function ht_calcular_dias_vacaciones(
     return $total;
 }
 
+function ht_descuento_registro_personal(float $minutos): int
+{
+    return $minutos <= TOLERANCIA_MINUTOS_REGISTRO_PERSONAL ? 0 : (int) ceil($minutos / 60) * 60;
+}
+
 function ht_sumar_minutos_nominales(
     array $diasTrabajo,
     array $feriados,
@@ -1054,11 +1059,17 @@ function ht_sumar_minutos_nominales(
 ): int {
     $m = 0;
     foreach ($diasTrabajo as $fechaStr => $tipoDia) {
-        if ($tipoDia === 'feriado_trabajado') {
+        // Los feriados se informan por separado; no integran las horas normales ni su total.
+        if (isset($feriados[$fechaStr]) || in_array($tipoDia, [
+            'feriado_trabajado', 'feriado_quincenal_trabajado', 'feriado_no_trabajado',
+        ], true)) {
             continue;
         }
         $d = new DateTimeImmutable($fechaStr);
-        $m += ht_minutos_horas_trabajadas_dia_laboral($d, $feriados, $areaNombre, $jornadaVigilanciaHoras);
+        $maximoDia = ht_minutos_horas_trabajadas_dia_laboral($d, $feriados, $areaNombre, $jornadaVigilanciaHoras);
+        $m += is_array($tipoDia)
+            ? min($maximoDia, max(0, (int) ($tipoDia['minutosNormales'] ?? 0)))
+            : $maximoDia;
     }
     return $m;
 }

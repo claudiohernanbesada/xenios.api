@@ -83,6 +83,7 @@ try {
         $method === 'GET' && $path === '/reportes/asistencia' => handle_reporte_asistencia_sgi($pdo, $config),
         $method === 'GET' && $path === '/reportes/asistencia-detallada' => handle_reporte_asistencia_detallada_sgi($pdo, $config),
         $method === 'GET' && $path === '/reportes/horas-trabajadas' => handle_reporte_horas_trabajadas_sgi($pdo, $config),
+        $method === 'GET' && $path === '/reportes/horas-extras-diarias' => handle_reporte_horas_extras_diarias_sgi($pdo, $config),
         $method === 'POST' && $path === '/horas-extras/motivos-pendientes/enviar-mail' => handle_horas_extra_motivo_pendientes_mail($pdo, $config),
         $method === 'GET' && $path === '/notas-traslado' => handle_notas_traslado_list($pdo, $config),
         $method === 'POST' && $path === '/notas-traslado/scan' => handle_notas_traslado_scan($pdo, $config),
@@ -1049,4 +1050,24 @@ function handle_novedades_routes(PDO $pdo, array $config, string $path, string $
     }
 
     handle_autorizacion_archivo($pdo, $config, $path, $method);
+}
+
+// Calculo comun de horas extras para consumidores web y movil.
+function handle_reporte_horas_extras_diarias_sgi(PDO $pdo, array $config): void
+{
+    if (!validar_api_key($config)) {
+        json_response(['message' => 'Error de seguridad AK-NOT_FOUND'], 401, $config);
+        return;
+    }
+    $desde = reportes_sgi_parse_fecha((string) ($_GET['fechaInicio'] ?? ''));
+    $hasta = reportes_sgi_parse_fecha((string) ($_GET['fechaFin'] ?? ''));
+    if ($desde === null || $hasta === null || $desde > $hasta) {
+        json_response(['message' => 'Periodo invalido'], 400, $config);
+        return;
+    }
+    json_response(['reporte' => ['empleados' => horas_extra_motivo_calcular_diarias(
+        $pdo, $config, $desde, $hasta,
+        isset($_GET['tipoContratacionId']) ? (int) $_GET['tipoContratacionId'] : null,
+        reportes_sgi_area_ids_desde_query()
+    )]], 200, $config);
 }
