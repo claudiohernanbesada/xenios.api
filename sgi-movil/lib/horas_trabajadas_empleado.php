@@ -723,7 +723,23 @@ function ht_procesar_grupo_dia_fichadas(
         $entrada = $corte;
     }
 
-    $turno = ht_obtener_turno_asignado($datos['turnos'], $entrada, $salida, $dia, $areaNombre, $horarioIngreso, $horarioSalida);
+    // Una salida autorizada puede completar la jornada fuera del establecimiento.
+    // Su regreso orienta el turno, pero no genera extras por fichadas inexistentes.
+    $salidaReferencia = $salida;
+    foreach ($authsDia as $auth) {
+        $fechaRegreso = !empty($auth['FechaHoraRegresoEfectiva'])
+            ? (string) $auth['FechaHoraRegresoEfectiva']
+            : (string) ($auth['FechaRegreso'] ?? '') . ' ' . substr((string) ($auth['HoraRegreso'] ?? ''), 0, 8);
+        if (trim($fechaRegreso) === '') {
+            continue;
+        }
+        $regreso = new DateTimeImmutable($fechaRegreso);
+        $duracion = ($regreso->getTimestamp() - $entrada->getTimestamp()) / 3600;
+        if ($regreso > $salidaReferencia && $duracion <= (float) ($datos['config']['max_duracion_jornada_horas'] ?? 13)) {
+            $salidaReferencia = $regreso;
+        }
+    }
+    $turno = ht_obtener_turno_asignado($datos['turnos'], $entrada, $salidaReferencia, $dia, $areaNombre, $horarioIngreso, $horarioSalida);
     if ($turno['turno'] === null) {
         return;
     }
@@ -733,7 +749,7 @@ function ht_procesar_grupo_dia_fichadas(
     $inicioNormal = $entrada > $iniAsig ? $entrada : $iniAsig;
     $finNormal = $salida < $finAsig ? $salida : $finAsig;
 
-    if ($finNormal <= $inicioNormal) {
+    if ($finNormal <= $inicioNormal && $authsDia === []) {
         return;
     }
 
@@ -755,7 +771,8 @@ function ht_procesar_grupo_dia_fichadas(
     );
 
     $minutosTarde = ($entrada->getTimestamp() - $iniAsig->getTimestamp()) / 60.0;
-    $minutosAntes = ($finAsig->getTimestamp() - $salida->getTimestamp()) / 60.0 - $minutosCubiertosPorAuth;
+    $inicioFaltante = $salida > $iniAsig ? $salida : $iniAsig;
+    $minutosAntes = ($finAsig->getTimestamp() - $inicioFaltante->getTimestamp()) / 60.0 - $minutosCubiertosPorAuth;
     $minutosNormalesHoy = max(0, $minutosJornada
         - ht_descuento_registro_personal($minutosTarde)
         - ht_descuento_registro_personal($minutosAntes));
@@ -785,8 +802,9 @@ function ht_procesar_grupo_dia_fichadas(
 
     $limite = $dow === 6 ? HT_LIMITE_EXTRA_SABADO : HT_LIMITE_EXTRA_SEMANA;
     if ($entrada < $iniAsig) {
-        ht_acumular_extra_por_horario($entrada, $iniAsig, $limite, $diaExtra50ConTope, $diaExtra100ConTope, $bloqueMinutos);
-        ht_acumular_tiempo_compensable($entrada, $iniAsig, $diaCompensableConTope, $bloqueMinutos);
+        $finExtraEntrada = $salida < $iniAsig ? $salida : $iniAsig;
+        ht_acumular_extra_por_horario($entrada, $finExtraEntrada, $limite, $diaExtra50ConTope, $diaExtra100ConTope, $bloqueMinutos);
+        ht_acumular_tiempo_compensable($entrada, $finExtraEntrada, $diaCompensableConTope, $bloqueMinutos);
     }
     if ($salida > $finAsig) {
         ht_acumular_extra_por_horario($finAsig, $salida, $limite, $diaExtra50ConTope, $diaExtra100ConTope, $bloqueMinutos);
