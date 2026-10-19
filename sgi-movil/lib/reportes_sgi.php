@@ -188,16 +188,24 @@ function reportes_sgi_fichadas_detalle(PDO $pdo, string $legajo, DateTimeImmutab
          WHERE f.Estado = 1 AND f.Fecha >= ? AND f.Fecha <= ? AND f.Legajo IN ($placeholders)
          ORDER BY f.Fecha ASC"
     );
-    $stmt->execute(array_merge([$desde->format('Y-m-d 00:00:00'), $hasta->format('Y-m-d 23:59:59')], $claves));
-
+    $stmt->execute(array_merge([$desde->modify('-1 day')->format('Y-m-d 00:00:00'), $hasta->modify('+1 day')->format('Y-m-d 23:59:59')], $claves));
+    $marcas = array_map(static fn(array $r): array => [
+        'Fecha' => new DateTimeImmutable((string) $r['Fecha']),
+        'EsCargaManual' => (bool) $r['EsCargaManual'], 'MotivoManual' => (string) ($r['MotivoManual'] ?? ''),
+    ], $stmt->fetchAll(PDO::FETCH_ASSOC));
+    $personal = $pdo->prepare('SELECT HorarioIngreso, HorarioSalida FROM Personal WHERE Legajo = ? AND Estado IN (1,2) LIMIT 1');
+    $personal->execute([$legajoInt]);
+    $horario = $personal->fetch(PDO::FETCH_ASSOC) ?: [];
     $porDia = [];
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $fecha = new DateTimeImmutable((string) $row['Fecha']);
-        $porDia[(int) $fecha->format('j')][] = [
-            'fecha' => $fecha,
-            'esManual' => (bool) $row['EsCargaManual'],
-            'motivoManual' => (string) ($row['MotivoManual'] ?? ''),
-        ];
+    $grupos = registro_personal_agrupar_jornadas($marcas,
+        asistencia_normalizar_hora($horario['HorarioIngreso'] ?? null), asistencia_normalizar_hora($horario['HorarioSalida'] ?? null));
+    foreach ($grupos as $fechaLaboral => $grupo) {
+        if ($fechaLaboral < $desde->format('Y-m-d') || $fechaLaboral > $hasta->format('Y-m-d')) continue;
+        foreach ($grupo as $row) {
+            $porDia[(int) substr($fechaLaboral, 8, 2)][] = [
+                'fecha' => $row['Fecha'], 'esManual' => $row['EsCargaManual'], 'motivoManual' => $row['MotivoManual'],
+            ];
+        }
     }
     return $porDia;
 }

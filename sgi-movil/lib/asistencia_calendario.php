@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/registro_personal_jornadas.php';
 
 /**
  * Calendario de asistencia de un empleado entre dos fechas (lógica ReportsController, un personal).
@@ -30,12 +31,8 @@ function asistencia_build_calendario(PDO $pdo, array $personal, string $desde, s
     if ($finConsulta > $hoy->setTime(23, 59, 59)) {
         $finConsulta = $hoy->setTime(23, 59, 59);
     }
-    $inicioConsulta = asistencia_es_horario_nocturno($horarioIngreso, $horarioSalida)
-        ? $desdeDt->modify('-1 day')
-        : $desdeDt;
-    $finConsultaFichadas = asistencia_es_horario_nocturno($horarioIngreso, $horarioSalida)
-        ? $finConsulta->modify('+1 day')
-        : $finConsulta;
+    $inicioConsulta = $desdeDt->modify('-1 day');
+    $finConsultaFichadas = $finConsulta->modify('+1 day');
     if ($finConsultaFichadas > $hoy->setTime(23, 59, 59)) {
         $finConsultaFichadas = $hoy->setTime(23, 59, 59);
     }
@@ -357,11 +354,7 @@ function asistencia_agrupar_fichadas_por_dia(
     ?string $horarioIngreso = null,
     ?string $horarioSalida = null
 ): array {
-    $porDia = [];
-    foreach ($fichadas as $f) {
-        $fechaKey = asistencia_obtener_fecha_laboral_fichada($f['Fecha'], $horarioIngreso, $horarioSalida);
-        $porDia[$fechaKey][] = $f;
-    }
+    $porDia = registro_personal_agrupar_jornadas($fichadas, $horarioIngreso, $horarioSalida);
 
     $map = [];
     foreach ($porDia as $fechaKey => $lista) {
@@ -733,19 +726,7 @@ function asistencia_obtener_fecha_laboral_fichada(
     ?string $horarioIngreso,
     ?string $horarioSalida
 ): string {
-    if (!asistencia_es_horario_nocturno($horarioIngreso, $horarioSalida)) {
-        return $fichada->format('Y-m-d');
-    }
-
-    $hora = asistencia_time_to_minutes($fichada->format('H:i:s'));
-    $salida = asistencia_time_to_minutes((string) $horarioSalida);
-    $limiteSalidaMadrugada = min($salida + 240, asistencia_time_to_minutes((string) $horarioIngreso));
-
-    if ($hora <= $limiteSalidaMadrugada) {
-        return $fichada->modify('-1 day')->format('Y-m-d');
-    }
-
-    return $fichada->format('Y-m-d');
+    return registro_personal_fecha_laboral($fichada, $horarioIngreso, $horarioSalida);
 }
 
 function asistencia_parse_fecha_baja(mixed $raw): ?DateTimeImmutable

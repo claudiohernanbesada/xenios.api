@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/registro_personal_jornadas.php';
 
 /** Límite horario extra semana (18:00) y sábado (13:00). */
 const HT_LIMITE_EXTRA_SEMANA = '18:00:00';
@@ -118,12 +119,11 @@ function horas_trabajadas_cargar_datos(PDO $pdo, array $empleado, array $periodo
     $legajo = (int) ($empleado['Legajo'] ?? 0);
     $desde = $periodo['desde']->format('Y-m-d');
     $hasta = $periodo['hasta']->format('Y-m-d');
-    $fi = $periodo['fechaInicio']->format('Y-m-d H:i:s');
+    $fi = $periodo['fechaInicio']->modify('-1 day')->format('Y-m-d H:i:s');
     $ingresoNorm = ht_parse_horario_empleado($empleado['HorarioIngreso'] ?? null);
     $salidaNorm = ht_parse_horario_empleado($empleado['HorarioSalida'] ?? null);
-    // La salida del ultimo turno nocturno puede estar en el dia calendario siguiente.
-    $finFichadas = ht_es_horario_nocturno($ingresoNorm, $salidaNorm)
-        ? $periodo['fechaFin']->modify('+1 day') : $periodo['fechaFin'];
+    // Consultar contexto para cerrar tambien turnos reales que difieren del horario habitual.
+    $finFichadas = $periodo['fechaFin']->modify('+1 day');
     $ff = $finFichadas->format('Y-m-d H:i:s');
 
     $fichadas = [];
@@ -136,11 +136,10 @@ function horas_trabajadas_cargar_datos(PDO $pdo, array $empleado, array $periodo
         $params = array_merge([$fi, $ff], $claves);
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $fecha = new DateTimeImmutable((string) $row['Fecha']);
-            $fechaLaboral = ht_obtener_fecha_laboral_fichada($fecha, $ingresoNorm, $salidaNorm);
+        $marcas = array_map(static fn(array $r): array => ['Fecha' => new DateTimeImmutable((string) $r['Fecha'])], $stmt->fetchAll(PDO::FETCH_ASSOC));
+        foreach (registro_personal_agrupar_jornadas($marcas, $ingresoNorm, $salidaNorm) as $fechaLaboral => $grupo) {
             if ($fechaLaboral >= $desde && $fechaLaboral <= $hasta) {
-                $fichadas[] = ['Fecha' => $fecha];
+                array_push($fichadas, ...$grupo);
             }
         }
     }
@@ -597,14 +596,8 @@ function horas_trabajadas_calcular_extras(
     $hastaStr = $periodo['hasta']->format('Y-m-d');
     $horarioIngresoNorm = ht_parse_horario_empleado(is_string($empleado['HorarioIngreso'] ?? null) ? $empleado['HorarioIngreso'] : null);
     $horarioSalidaNorm = ht_parse_horario_empleado(is_string($empleado['HorarioSalida'] ?? null) ? $empleado['HorarioSalida'] : null);
-    $porDia = [];
-    foreach ($fichadasEmp as $f) {
-        $key = ht_obtener_fecha_laboral_fichada($f['Fecha'], $horarioIngresoNorm, $horarioSalidaNorm);
-        if ($key < $desdeStr || $key > $hastaStr) {
-            continue;
-        }
-        $porDia[$key][] = $f;
-    }
+    $porDia = array_filter(registro_personal_agrupar_jornadas($fichadasEmp, $horarioIngresoNorm, $horarioSalidaNorm),
+        static fn(string $fecha): bool => $fecha >= $desdeStr && $fecha <= $hastaStr, ARRAY_FILTER_USE_KEY);
 
     foreach ($porDia as $fechaKey => $grupo) {
         usort($grupo, static fn ($a, $b) => $a['Fecha'] <=> $b['Fecha']);
@@ -963,11 +956,7 @@ function ht_tiene_fichada_incompleta(
     $hastaStr = $hasta->format('Y-m-d');
     $horarioIngresoNorm = ht_parse_horario_empleado(is_string($horarioIngreso) ? $horarioIngreso : null);
     $horarioSalidaNorm = ht_parse_horario_empleado(is_string($horarioSalida) ? $horarioSalida : null);
-    $porDia = [];
-    foreach ($fichadasEmp as $f) {
-        $key = ht_obtener_fecha_laboral_fichada($f['Fecha'], $horarioIngresoNorm, $horarioSalidaNorm);
-        $porDia[$key][] = $f;
-    }
+    $porDia = registro_personal_agrupar_jornadas($fichadasEmp, $horarioIngresoNorm, $horarioSalidaNorm);
 
     foreach ($porDia as $fechaKey => $dia) {
         if ($fechaKey < $desdeStr || $fechaKey > $hastaStr) {
@@ -1651,20 +1640,7 @@ function ht_obtener_fecha_laboral_fichada(
     ?string $horarioIngreso,
     ?string $horarioSalida
 ): string {
-    if (!ht_es_horario_nocturno($horarioIngreso, $horarioSalida)) {
-        return $fichada->format('Y-m-d');
-    }
-
-    $hora = ht_time_to_seconds($fichada->format('H:i:s'));
-    $salida = ht_time_to_seconds((string) $horarioSalida);
-    $ingreso = ht_time_to_seconds((string) $horarioIngreso);
-    $limiteSalidaMadrugada = min($salida + 4 * 3600, $ingreso);
-
-    if ($hora <= $limiteSalidaMadrugada) {
-        return $fichada->modify('-1 day')->format('Y-m-d');
-    }
-
-    return $fichada->format('Y-m-d');
+    return registro_personal_fecha_laboral($fichada, $horarioIngreso, $horarioSalida);
 }
 
 function ht_time_to_seconds(string $time): int

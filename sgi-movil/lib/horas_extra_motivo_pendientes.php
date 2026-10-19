@@ -149,16 +149,9 @@ function horas_extra_motivo_diarias_empleado(array $periodo, array $datos, array
     $hastaStr = $periodo['hasta']->format('Y-m-d');
     $horarioIngreso = ht_parse_horario_empleado(is_string($empleado['HorarioIngreso'] ?? null) ? $empleado['HorarioIngreso'] : null);
     $horarioSalida = ht_parse_horario_empleado(is_string($empleado['HorarioSalida'] ?? null) ? $empleado['HorarioSalida'] : null);
-    $porDia = [];
     $filas = [];
-
-    foreach ($datos['fichadas'] as $fichada) {
-        $fechaKey = ht_obtener_fecha_laboral_fichada($fichada['Fecha'], $horarioIngreso, $horarioSalida);
-        if ($fechaKey < $desdeStr || $fechaKey > $hastaStr) {
-            continue;
-        }
-        $porDia[$fechaKey][] = $fichada;
-    }
+    $porDia = array_filter(registro_personal_agrupar_jornadas($datos['fichadas'], $horarioIngreso, $horarioSalida),
+        static fn(string $fecha): bool => $fecha >= $desdeStr && $fecha <= $hastaStr, ARRAY_FILTER_USE_KEY);
 
     foreach ($porDia as $fechaKey => $grupo) {
         $fecha = new DateTimeImmutable($fechaKey);
