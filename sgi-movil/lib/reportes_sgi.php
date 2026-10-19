@@ -37,7 +37,8 @@ function reportes_sgi_empleados(
     array $areaIds = []
 ): array {
     $where = [
-        '(p.Estado = 1 OR (p.Estado = 2 AND (p.FechaBaja IS NULL OR p.FechaBaja >= :fechaInicio)))',
+        'p.Estado IN (1, 2)',
+        '(p.FechaBaja IS NULL OR p.FechaBaja >= :fechaInicio)',
         'p.FechaAlta < :hastaExclusivo',
     ];
     $params = [
