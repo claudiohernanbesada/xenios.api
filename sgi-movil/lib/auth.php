@@ -185,7 +185,7 @@ function empleado_may_write_avatar(string $path, string $method): bool
 // POSTs permitidos para rol EMPLEADO puro
 function empleado_may_post(string $path): bool
 {
-    if (in_array($path, ['/auth/cambiar-clave', '/auth/avatar', '/push/fichadas/evento', '/notas-traslado/scan'], true)) {
+    if (in_array($path, ['/auth/cambiar-clave', '/auth/avatar', '/push/registrar-token', '/push/fichadas/evento', '/notas-traslado/scan', '/inout-seguridad/leida'], true)) {
         return true;
     }
 

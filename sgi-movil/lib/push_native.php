@@ -340,7 +340,7 @@ function push_fcm_send(array $message): array
                 'notification' => [
                     'channel_id' => (string) ($message['channelId'] ?? 'sistema'),
                     'color' => '#007BFF',
-                    'sound' => 'default',
+                    'sound' => (string) ($message['sound'] ?? 'default'),
                     'visibility' => 'PUBLIC',
                 ],
             ],
@@ -504,7 +504,7 @@ function push_apns_send(array $message): array
                 'title' => (string) $message['title'],
                 'body' => (string) $message['body'],
             ],
-            'sound' => 'default',
+            'sound' => (string) ($message['sound'] ?? 'default'),
         ],
     ];
     foreach (($message['data'] ?? []) as $key => $value) {

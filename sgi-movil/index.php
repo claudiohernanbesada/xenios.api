@@ -18,6 +18,7 @@ require_once __DIR__ . '/lib/auth_salida_scan.php';
 require_once __DIR__ . '/lib/notas_traslado.php';
 require_once __DIR__ . '/lib/usuarios.php';
 require_once __DIR__ . '/lib/areas.php';
+require_once __DIR__ . '/lib/inout_seguridad.php';
 require_once __DIR__ . '/lib/reportes_sgi.php';
 require_once __DIR__ . '/lib/horas_extra_motivo_pendientes.php';
 
@@ -57,6 +58,7 @@ try {
 // Enrutador: método + path → handler correspondiente
 try {
     match (true) {
+        $path === '/inout-seguridad' || str_starts_with($path, '/inout-seguridad/') => handle_inout_seguridad($pdo, $config, $path, $method),
         $method === 'GET' && $path === '/app-version' => handle_app_version($pdo, $config),
         $method === 'POST' && $path === '/auth/login' => handle_login($pdo, $config),
         $method === 'POST' && $path === '/auth/doble-factor' => handle_doble_factor($pdo, $config),
@@ -768,7 +770,6 @@ function novedades_require_tables(PDO $pdo, array $config): void
 function handle_push_registrar_token(PDO $pdo, array $config): void
 {
     $auth = require_auth($pdo, $config);
-    require_any_role($auth['roles'], $config);
     novedades_require_tables($pdo, $config);
 
     $body = json_decode(file_get_contents('php://input') ?: '{}', true) ?? [];
