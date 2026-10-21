@@ -38,4 +38,22 @@ check_push_visita($newsPayload['android']['priority'] === 'HIGH' && $newsPayload
     && count($newsPayload['android']['notification']['vibrate_timings']) === 6, 'novedad urgente con sonido y vibración en segundo plano');
 check_push_visita($newsPayload['data']['tipo'] === 'novedad' && $newsPayload['data']['novedadId'] === 'novedad-test', 'push de novedad identifica contenido sin marcar lectura');
 check_push_visita(strlen(json_encode($newsPayload, JSON_UNESCAPED_UNICODE)) < 4096 && str_contains($newsPayload['notification']['body'], 'Ver contenido completo'), 'novedad extensa mantiene payload por debajo de 4 KB');
+check_push_visita(novedades_normalizar_plataforma('android:ring-v1') === 'android:ring-v1'
+    && novedades_normalizar_plataforma('android:otro') === 'android', 'conserva solo la capacidad nativa reconocida');
+check_push_visita(push_native_token_valido(str_repeat('a', 32), 'android:ring-v1'), 'acepta token FCM de binario con alerta insistente');
+foreach ([$messages[0], $news[0]] as $message) {
+    $message['plataforma'] = 'android:ring-v1';
+    $native = push_fcm_build_payload($message)['message'];
+    $content = json_decode($native['data']['body'], true, 512, JSON_THROW_ON_ERROR);
+    check_push_visita(!isset($native['notification']) && !isset($native['android']['notification'])
+        && $native['data']['title'] === $message['title'] && $native['data']['message'] === $message['body'],
+        'binario nativo presenta su alerta sin que Google saltee el receptor');
+    check_push_visita($native['android']['priority'] === 'HIGH' && $content === $message['data']
+        && $native['data']['channelId'] === $message['channelId'], 'mantiene prioridad, canal y datos de navegación y lectura');
+    check_push_visita(str_starts_with($native['data']['tag'], $content['tipo'] === 'novedad' ? 'novedad-' : 'visita-')
+        && $native['data']['autoDismiss'] === 'true', 'identificador estable y cancelación al abrir el aviso');
+    check_push_visita(strlen(json_encode($native, JSON_UNESCAPED_UNICODE)) < 4096, 'payload nativo extenso menor a 4 KB');
+}
+$fichada = push_native_build_fichada_messages([['token' => str_repeat('a', 32), 'plataforma' => 'android:ring-v1', 'fecha' => '21/10/2026', 'hora' => '12:00']])[0];
+check_push_visita(isset(push_fcm_build_payload($fichada)['message']['notification']), 'fichadas conserva aviso normal en el nuevo binario');
 echo 'TOTAL: ' . $checks . ' verificaciones correctas.' . PHP_EOL;

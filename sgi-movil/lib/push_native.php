@@ -20,6 +20,11 @@ function push_native_text_cut(string $value, int $maxBytes): string
     return $cut;
 }
 
+function push_native_es_android(string $plataforma): bool
+{
+    return in_array($plataforma, ['android', 'android:ring-v1'], true);
+}
+
 function push_native_token_valido(string $token, string $plataforma): bool
 {
     $token = trim($token);
@@ -30,7 +35,7 @@ function push_native_token_valido(string $token, string $plataforma): bool
         return false;
     }
 
-    if ($plataforma === 'android') {
+    if (push_native_es_android($plataforma)) {
         return strlen($token) >= 20;
     }
 
@@ -154,12 +159,12 @@ function push_native_send_batch(array $messages): array
         $plataforma = (string) ($message['plataforma'] ?? '');
 
         try {
-            $result = $plataforma === 'android'
+            $result = push_native_es_android($plataforma)
                 ? push_fcm_send($message)
                 : push_apns_send($message);
         } catch (Throwable $e) {
             $result = [
-                'provider' => $plataforma === 'android' ? 'fcm' : 'apns',
+                'provider' => push_native_es_android($plataforma) ? 'fcm' : 'apns',
                 'accepted' => false,
                 'error' => $e->getMessage(),
             ];
@@ -338,6 +343,31 @@ function push_fcm_build_payload(array $message): array
         $data[(string) $key] = is_scalar($value)
             ? (string) $value
             : json_encode($value, JSON_THROW_ON_ERROR);
+    }
+
+    // Solo los binarios que anuncian el receptor nativo reciben este formato.
+    // Un payload FCM con "notification" es presentado por Google en segundo
+    // plano y no permite activar FLAG_INSISTENT desde nuestra aplicación.
+    $tipo = $data['tipo'] ?? '';
+    if (($message['plataforma'] ?? '') === 'android:ring-v1'
+        && in_array($tipo, ['novedad', 'inoutSeguridad'], true)) {
+        $id = $tipo === 'novedad' ? ($data['novedadId'] ?? '') : ($data['transaccionId'] ?? '');
+        $tag = ($tipo === 'novedad' ? 'novedad-' : 'visita-') . $id;
+        return ['message' => [
+            'token' => (string) $message['token'],
+            'data' => [
+                'title' => (string) $message['title'],
+                'message' => (string) $message['body'],
+                'body' => json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
+                'channelId' => (string) $message['channelId'],
+                'sound' => (string) ($message['sound'] ?? 'default'),
+                'vibrate' => json_encode($message['vibrationPattern'] ?? [0, 500, 300, 500], JSON_THROW_ON_ERROR),
+                'tag' => $tag,
+                'autoDismiss' => 'true',
+                'color' => '#007BFF',
+            ],
+            'android' => ['priority' => 'HIGH'],
+        ]];
     }
 
     $notification = [

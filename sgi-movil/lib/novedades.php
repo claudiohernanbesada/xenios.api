@@ -291,6 +291,9 @@ function novedades_normalizar_plataforma(?string $plataforma): ?string
         return null;
     }
 
+    // Capacidad del binario nativo; entra en el varchar(16) existente.
+    if ($valor === 'android:ring-v1') return $valor;
+
     $base = explode(':', $valor, 2)[0];
     if ($base === 'android') {
         return 'android';
