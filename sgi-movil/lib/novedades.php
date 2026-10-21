@@ -170,6 +170,10 @@ function novedades_crear_y_enviar(
         $tokens = novedades_tokens_por_usuarios($pdo, $usuarioIds);
         $messages = push_native_build_novedad_messages($tokens, $novedadId, $titulo, $cuerpo);
         $push = push_native_send_batch($messages);
+        if ($messages === [] || !$push['ok']) {
+            $reason = $messages === [] ? 'Sin tokens registrados para los destinatarios.' : implode(' | ', $push['errors']);
+            error_log('[novedades-push] NovedadId=' . $novedadId . ' ' . push_native_text_cut($reason, 1200));
+        }
     } catch (Throwable $e) {
         error_log('[novedades] Novedad registrada sin push. NovedadId=' . $novedadId . ' Error=' . $e->getMessage());
         $push = [
@@ -251,10 +255,9 @@ function novedades_registrar_token(
 
     try {
         $del = $pdo->prepare(
-            'DELETE FROM MovilPushToken WHERE UsuarioId = :uid OR ExpoPushToken = :token'
+            'DELETE FROM MovilPushToken WHERE ExpoPushToken = :token'
         );
         $del->execute([
-            'uid' => $usuarioId,
             'token' => $pushToken,
         ]);
 
@@ -359,7 +362,11 @@ function novedades_marcar_leida(PDO $pdo, string $usuarioId, string $novedadId):
     $ahora = novedades_now_string();
     $stmt->execute(['leida' => $ahora, 'uid' => $usuarioId, 'nid' => $novedadId]);
 
-    return $stmt->rowCount() > 0;
+    if ($stmt->rowCount() > 0) return true;
+    // Confirmar dos veces la misma lectura no debe fallar ni cambiar su fecha.
+    $exists = $pdo->prepare('SELECT 1 FROM MovilNovedadUsuario WHERE UsuarioId = ? AND NovedadId = ? AND LeidaEn IS NOT NULL');
+    $exists->execute([$usuarioId, $novedadId]);
+    return $exists->fetchColumn() !== false;
 }
 
 function novedades_format_datetime(string $value): string

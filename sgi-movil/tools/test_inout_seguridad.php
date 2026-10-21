@@ -227,9 +227,42 @@ try {
     foreach (['2026-02-30', '21-10-2026', ''] as $invalidDate) {
         check_inout(http_inout('/inout-seguridad?fecha=' . $invalidDate, $porter['token'])['status'] === 422, 'rechaza fecha inválida ' . $invalidDate);
     }
+    $news = http_inout('/novedades', null, 'POST', ['titulo' => 'Novedad de prueba', 'cuerpo' => "Primera línea.\nSegunda línea.",
+        'from' => $porter['id'], 'usuarioIds' => [$visitor['id']]]);
+    check_inout($news['status'] === 201, 'crea novedad dirigida a un destinatario de prueba');
+    $newsId = $news['body']['novedadId'];
+    $newsList = http_inout('/novedades', $visitor['token']);
+    check_inout(in_array($newsId, array_column($newsList['body']['novedades'], 'id')) && $newsList['body']['noLeidas'] === 1, 'novedad pendiente disponible para ventana emergente');
+    $newsDetail = http_inout('/novedades/' . $newsId, $visitor['token']);
+    check_inout($newsDetail['body']['novedad']['leida'] === false && $newsDetail['body']['novedad']['cuerpo'] === "Primera línea.\nSegunda línea.", 'consultar contenido no confirma lectura');
+    check_inout(http_inout('/novedades/' . $newsId, $third['token'])['status'] === 404, 'otro usuario no obtiene la novedad');
+    $foreignRead = http_inout('/novedades/' . $newsId . '/leida', $third['token'], 'POST');
+    check_inout($foreignRead['status'] === 404, 'otro usuario no confirma la novedad');
+    check_inout(http_inout('/novedades/' . $newsId . '/leida', $visitor['token'], 'POST')['status'] === 200, 'confirmación explícita de lectura');
+    check_inout(http_inout('/novedades/' . $newsId . '/leida', $visitor['token'], 'POST')['status'] === 200, 'reintento de lectura es idempotente');
+    check_inout(http_inout('/novedades', $visitor['token'])['body']['noLeidas'] === 0, 'confirmar elimina novedad de alertas pendientes');
+    // Registrar otro teléfono no debe dejar al primero sin push.
+    $devices = [bin2hex(random_bytes(32)), bin2hex(random_bytes(32))];
+    foreach ($devices as $device) {
+        check_inout(http_inout('/push/registrar-token', $noRole['token'], 'POST', ['pushToken' => $device, 'plataforma' => 'android'])['status'] === 200, 'registra dispositivo de usuario sin roles');
+    }
+    $deviceQuery = $pdo->prepare('SELECT COUNT(*) FROM MovilPushToken WHERE UsuarioId = ?');
+    $deviceQuery->execute([$noRole['id']]);
+    check_inout((int) $deviceQuery->fetchColumn() === 2, 'mantiene ambos teléfonos del mismo destinatario');
+    http_inout('/push/registrar-token', $noRole['token'], 'POST', ['pushToken' => $devices[0], 'plataforma' => 'android']);
+    $deviceQuery->execute([$noRole['id']]);
+    check_inout((int) $deviceQuery->fetchColumn() === 2, 'registro repetido de dispositivo no duplica tokens');
+    http_inout('/push/registrar-token', $third['token'], 'POST', ['pushToken' => $devices[0], 'plataforma' => 'android']);
+    $deviceQuery->execute([$noRole['id']]);
+    check_inout((int) $deviceQuery->fetchColumn() === 1, 'cambiar cuenta solo desvincula ese teléfono');
+    $deviceQuery->execute([$third['id']]);
+    check_inout((int) $deviceQuery->fetchColumn() === 1, 'teléfono compartido pertenece a la última cuenta');
     echo "TOTAL: $checks verificaciones correctas." . PHP_EOL;
 } finally {
         foreach ($ids as $id) {
+            $pdo->prepare('DELETE nu FROM MovilNovedadUsuario nu INNER JOIN MovilNovedad n ON n.Id = nu.NovedadId WHERE n.EnviadoPorUsuarioId = ?')->execute([$id]);
+            $pdo->prepare('DELETE FROM MovilNovedad WHERE EnviadoPorUsuarioId = ?')->execute([$id]);
+            $pdo->prepare('DELETE FROM MovilPushToken WHERE UsuarioId = ?')->execute([$id]);
             $pdo->prepare('DELETE FROM InOutSeguridad WHERE IngresoId IS NOT NULL AND (UserAdd = ? OR UsuarioVisitaId = ?)')->execute([$id, $id]);
             $pdo->prepare('DELETE FROM InOutSeguridad WHERE UserAdd = ? OR UsuarioVisitaId = ?')->execute([$id, $id]);
             $pdo->prepare('DELETE FROM RolUsuario WHERE UsuariosId = ?')->execute([$id]);

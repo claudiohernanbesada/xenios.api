@@ -31,4 +31,11 @@ check_push_visita($default['sound'] === 'default' && !isset($default['vibrate_ti
 $long = $note; $long['body'] = str_repeat('á', 1800);
 $truncated = inout_build_push_messages([['token' => str_repeat('a', 32), 'plataforma' => 'android']], $long)[0]['body'];
 check_push_visita(strlen($truncated) < 2400 && preg_match('//u', $truncated) === 1 && str_contains($truncated, 'Ver listado completo'), 'payload acotado sin cortar caracteres UTF-8');
+$news = push_native_build_novedad_messages([['token' => str_repeat('c', 32), 'plataforma' => 'android']], 'novedad-test', 'Aviso importante', str_repeat('á', 3000));
+$newsPayload = push_fcm_build_payload($news[0])['message'];
+check_push_visita($newsPayload['android']['notification']['channel_id'] === 'novedades-v2' && $newsPayload['android']['notification']['sound'] === 'campana', 'novedades usa canal sonoro propio');
+check_push_visita($newsPayload['android']['priority'] === 'HIGH' && $newsPayload['android']['notification']['notification_priority'] === 'PRIORITY_MAX'
+    && count($newsPayload['android']['notification']['vibrate_timings']) === 6, 'novedad urgente con sonido y vibración en segundo plano');
+check_push_visita($newsPayload['data']['tipo'] === 'novedad' && $newsPayload['data']['novedadId'] === 'novedad-test', 'push de novedad identifica contenido sin marcar lectura');
+check_push_visita(strlen(json_encode($newsPayload, JSON_UNESCAPED_UNICODE)) < 4096 && str_contains($newsPayload['notification']['body'], 'Ver contenido completo'), 'novedad extensa mantiene payload por debajo de 4 KB');
 echo 'TOTAL: ' . $checks . ' verificaciones correctas.' . PHP_EOL;

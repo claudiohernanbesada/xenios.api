@@ -13,6 +13,13 @@ function push_native_config(): array
     return $pushConfig;
 }
 
+function push_native_text_cut(string $value, int $maxBytes): string
+{
+    $cut = substr($value, 0, $maxBytes);
+    while ($cut !== '' && preg_match('//u', $cut) !== 1) $cut = substr($cut, 0, -1);
+    return $cut;
+}
+
 function push_native_token_valido(string $token, string $plataforma): bool
 {
     $token = trim($token);
@@ -64,6 +71,9 @@ function push_native_build_novedad_messages(
     string $cuerpo
 ): array {
     $messages = [];
+    $body = $cuerpo !== '' ? $cuerpo : 'Tiene novedades pendientes de lectura';
+    $pushBody = push_native_text_cut($body, 2200);
+    if ($pushBody !== $body) $pushBody .= '… Ver contenido completo en la app.';
     foreach ($registrations as $registration) {
         $token = trim((string) ($registration['token'] ?? ''));
         $plataforma = (string) ($registration['plataforma'] ?? '');
@@ -74,10 +84,14 @@ function push_native_build_novedad_messages(
         $messages[] = [
             'token' => $token,
             'plataforma' => $plataforma,
-            'title' => $titulo !== '' ? $titulo : 'SGI - RAEI',
-            'body' => $cuerpo !== '' ? $cuerpo : 'Tiene novedades pendientes de lectura',
-            'channelId' => 'novedades',
+            'title' => push_native_text_cut($titulo !== '' ? $titulo : 'SGI - RAEI', 200),
+            'body' => $pushBody,
+            'channelId' => 'novedades-v2',
+            'sound' => 'campana.wav',
+            'notificationPriority' => 'PRIORITY_MAX',
+            'vibrationPattern' => [0, 500, 300, 500, 300, 700],
             'data' => [
+                'tipo' => 'novedad',
                 'novedadId' => $novedadId,
                 'screen' => 'novedades',
             ],

@@ -189,7 +189,7 @@ function empleado_may_post(string $path): bool
         return true;
     }
 
-    return (bool) preg_match('#^/notas-traslado/[0-9a-f-]{36}/recibido$#i', $path);
+    return (bool) preg_match('#^/(?:notas-traslado/[0-9a-f-]{36}/recibido|novedades/[0-9a-f-]{36}/leida)$#i', $path);
 }
 
 // Empleado solo lectura salvo login, cambio de clave y subir avatar

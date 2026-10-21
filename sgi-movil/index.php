@@ -80,6 +80,7 @@ try {
         $method === 'POST' && $path === '/push/fichadas/evento' => handle_push_fichadas_evento($pdo, $config),
         $method === 'POST' && $path === '/push/fichadas/procesar' => handle_push_fichadas_procesar($pdo, $config),
         $method === 'GET' && $path === '/novedades' => handle_novedades_list($pdo, $config),
+        str_starts_with($path, '/novedades/') => handle_novedades_routes($pdo, $config, $path, $method),
         $method === 'GET' && $path === '/usuarios' => handle_usuarios_list($pdo, $config),
         $method === 'GET' && $path === '/areas' => handle_areas_list($pdo, $config),
         $method === 'GET' && $path === '/reportes/asistencia' => handle_reporte_asistencia_sgi($pdo, $config),
