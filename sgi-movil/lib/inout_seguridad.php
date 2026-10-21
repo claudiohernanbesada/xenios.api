@@ -5,6 +5,22 @@ require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/novedades.php';
 require_once __DIR__ . '/push_native.php';
 
+// PCRE maneja UTF-8 sin requerir la extensión opcional mbstring del servidor.
+function inout_text_length(string $value): int
+{
+    $length = preg_match_all('/./us', $value);
+    if ($length === false) throw new InvalidArgumentException('Texto UTF-8 inválido.');
+    return $length;
+}
+
+function inout_text_cut(string $value, int $maxBytes): string
+{
+    $cut = substr($value, 0, $maxBytes);
+    // Si el límite parte un carácter, quitar solo sus bytes incompletos.
+    while ($cut !== '' && preg_match('//u', $cut) !== 1) $cut = substr($cut, 0, -1);
+    return $cut;
+}
+
 function inout_uuid(): string
 {
     $bytes = random_bytes(16);
@@ -60,7 +76,7 @@ function inout_send_notification(PDO $pdo, string $transaccionId): array
     if ($rows === []) return ['sent' => 0, 'ok' => true];
     $notification = inout_notification($rows);
     // FCM/APNs limitan el payload a 4 KB; el detalle completo se recupera por API.
-    $pushBody = mb_strcut($notification['body'], 0, 2200, 'UTF-8');
+    $pushBody = inout_text_cut($notification['body'], 2200);
     if ($pushBody !== $notification['body']) $pushBody .= '… Ver listado completo en la app.';
     $tokens = novedades_tokens_por_usuarios($pdo, [$rows[0]['UsuarioVisitaId']]);
     $messages = [];
@@ -149,7 +165,7 @@ function handle_inout_seguridad(PDO $pdo, array $config, string $path, string $m
     if (!in_array($tipo, ['RAEI', 'Externo', 'Invitado'], true) || !in_array($movimiento, ['Ingreso', 'Egreso'], true)) inout_error('Tipo de persona o movimiento inválido.', $config);
     if (!is_string($hora) || !preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $hora)) inout_error('Ingresá el horario en formato HH:mm.', $config);
     $nota = trim((string) ($b['nota'] ?? ''));
-    if (mb_strlen($nota) > 2000) inout_error('La nota admite hasta 2000 caracteres.', $config);
+    if (inout_text_length($nota) > 2000) inout_error('La nota admite hasta 2000 caracteres.', $config);
     $stmt = $pdo->prepare('SELECT Id FROM InOutSeguridadMotivo WHERE Id = ? AND Estado = 1');
     $stmt->execute([$b['motivoId'] ?? '']);
     if (!$stmt->fetchColumn()) inout_error('Seleccioná un motivo activo.', $config);
@@ -177,7 +193,7 @@ function handle_inout_seguridad(PDO $pdo, array $config, string $path, string $m
             if (!$empresa) inout_error('Empresa no disponible.', $config);
         } else {
             $empresa = trim((string) ($b['empresaOtra'] ?? ''));
-            if ($empresa === '' || mb_strlen($empresa) > 100) inout_error('Ingresá el nombre de la empresa (hasta 100 caracteres).', $config);
+            if ($empresa === '' || inout_text_length($empresa) > 100) inout_error('Ingresá el nombre de la empresa (hasta 100 caracteres).', $config);
         }
         $personas = $b['personas'] ?? [];
         if (!is_array($personas) || count($personas) < 1 || count($personas) > 50) inout_error('Agregá entre 1 y 50 personas.', $config);
@@ -185,7 +201,7 @@ function handle_inout_seguridad(PDO $pdo, array $config, string $path, string $m
         foreach ($personas as &$p) {
             if (!is_array($p)) inout_error('Persona inválida.', $config);
             foreach (['nombre', 'apellido', 'dni'] as $key) $p[$key] = trim((string) ($p[$key] ?? ''));
-            if ($p['nombre'] === '' || $p['apellido'] === '' || mb_strlen($p['nombre']) > 100 || mb_strlen($p['apellido']) > 100 || !preg_match('/^\d{7,8}$/', $p['dni'])) inout_error('Revisá nombre, apellido y DNI de las personas.', $config);
+            if ($p['nombre'] === '' || $p['apellido'] === '' || inout_text_length($p['nombre']) > 100 || inout_text_length($p['apellido']) > 100 || !preg_match('/^\d{7,8}$/', $p['dni'])) inout_error('Revisá nombre, apellido y DNI de las personas.', $config);
             if (isset($dnis[$p['dni']])) inout_error('Hay un DNI repetido en la carga.', $config);
             $dnis[$p['dni']] = true;
         }

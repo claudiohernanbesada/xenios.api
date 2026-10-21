@@ -42,6 +42,10 @@ function fixture_user(string $nombre, string $sede, ?int $role): array {
     return ['id' => $id, 'mail' => $mail, 'token' => issue_token($id, $mail, $config['jwt_secret'], 1800)];
 }
 try {
+    check_inout(inout_text_length("José\n😀") === 6, 'longitud UTF-8 con acentos, salto y emoji');
+    check_inout(inout_text_cut('aé😀z', 4) === 'aé', 'limite de bytes no parte emoji');
+    check_inout(inout_text_cut('aé😀z', 2) === 'a', 'limite de bytes no parte acento');
+    check_inout(inout_text_cut('aé😀z', 7) === 'aé😀', 'conserva caracteres completos en el limite');
     $porter = fixture_user('Seguridad', 'Cardales', 63);
     $sfUser = fixture_user('Seguridad SF', 'San Fernando', 63);
     $visitor = fixture_user('Destinatario', 'Cardales', 29);
