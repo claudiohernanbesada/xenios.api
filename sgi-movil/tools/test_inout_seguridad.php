@@ -101,6 +101,8 @@ try {
     $r = http_inout('/inout-seguridad/notificaciones', $visitor['token']);
     $notification = $r['body']['notificaciones'][0] ?? [];
     check_inout(($notification['title'] ?? '') === 'Ingreso de Invitado' && str_contains($notification['body'] ?? '', 'Ana Prueba') && str_contains($notification['body'] ?? '', 'Luis Prueba'), 'notificacion con listado completo');
+    check_inout(($notification['empresa'] ?? '') === 'Empresa de prueba'
+        && $notification['body'] === "Empresa: Empresa de prueba\n\nEsta ingresando a la empresa:\n- Ana Prueba\n- Luis Prueba", 'notificación con empresa y todas las personas en renglones separados');
     $web = http_inout('/inout-seguridad/notificaciones', null, 'GET', null, true, $visitor['id']);
     check_inout($web['status'] === 200 && $web['body']['notificaciones'][0]['transaccionId'] === $transaction, 'destinatario web recibe visita sin rol de seguridad');
     http_inout('/inout-seguridad/leida', $third['token'], 'POST', ['transaccionId' => $transaction]);
@@ -191,6 +193,7 @@ try {
         $notes = http_inout('/inout-seguridad/notificaciones', $recipient['token'])['body']['notificaciones'];
         $notes = array_values(array_filter($notes, static fn($n) => $n['transaccionId'] === $out['transaccionId']));
         check_inout(count($notes) === 1 && count($notes[0]['personas']) === 1 && $notes[0]['personas'][0]['nombre'] === 'Persona ' . $index, 'cada destinatario ve solo su visita ' . $index);
+        check_inout(($notes[0]['empresa'] ?? '') === 'Empresa ' . $index && str_contains($notes[0]['body'], "\n- Persona " . $index . ' Lote'), 'empresa y persona corresponden al destinatario ' . $index);
     }
     $legacy = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Externo', 'movimiento' => 'Ingreso', 'horario' => '20:00',
         'motivoId' => '20a00000-0000-4000-8000-000000000001', 'empresaOtra' => 'Empresa nocturna',

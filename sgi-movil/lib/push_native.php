@@ -317,9 +317,8 @@ function push_fcm_credentials(): array
 }
 
 /** @param array<string, mixed> $message */
-function push_fcm_send(array $message): array
+function push_fcm_build_payload(array $message): array
 {
-    $credentials = push_fcm_credentials();
     $data = [];
     foreach (($message['data'] ?? []) as $key => $value) {
         $data[(string) $key] = is_scalar($value)
@@ -327,7 +326,18 @@ function push_fcm_send(array $message): array
             : json_encode($value, JSON_THROW_ON_ERROR);
     }
 
-    $payload = json_encode([
+    $notification = [
+        'channel_id' => (string) ($message['channelId'] ?? 'sistema'),
+        'color' => '#007BFF',
+        // FCM Android referencia el recurso res/raw sin extensión. APNs conserva .wav.
+        'sound' => pathinfo((string) ($message['sound'] ?? 'default'), PATHINFO_FILENAME),
+        'visibility' => 'PUBLIC',
+    ];
+    if (isset($message['notificationPriority'])) $notification['notification_priority'] = $message['notificationPriority'];
+    if (isset($message['vibrationPattern'])) {
+        $notification['vibrate_timings'] = array_map(static fn(int $ms): string => sprintf('%.3fs', $ms / 1000), $message['vibrationPattern']);
+    }
+    return [
         'message' => [
             'token' => (string) $message['token'],
             'notification' => [
@@ -337,15 +347,17 @@ function push_fcm_send(array $message): array
             'data' => $data,
             'android' => [
                 'priority' => 'HIGH',
-                'notification' => [
-                    'channel_id' => (string) ($message['channelId'] ?? 'sistema'),
-                    'color' => '#007BFF',
-                    'sound' => (string) ($message['sound'] ?? 'default'),
-                    'visibility' => 'PUBLIC',
-                ],
+                'notification' => $notification,
             ],
         ],
-    ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+    ];
+}
+
+/** @param array<string, mixed> $message */
+function push_fcm_send(array $message): array
+{
+    $credentials = push_fcm_credentials();
+    $payload = json_encode(push_fcm_build_payload($message), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
 
     $url = 'https://fcm.googleapis.com/v1/projects/'
         . rawurlencode($credentials['projectId'])

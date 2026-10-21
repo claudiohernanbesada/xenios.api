@@ -56,14 +56,36 @@ function inout_require_permission(array $auth, array $config): void
 
 function inout_notification(array $rows): array
 {
+    usort($rows, static fn(array $a, array $b): int => strcmp($a['Apellido'], $b['Apellido']) ?: strcmp($a['Nombre'], $b['Nombre']));
     $ingreso = $rows[0]['Movimiento'] === 'Ingreso';
+    $empresa = implode(', ', array_values(array_unique(array_column($rows, 'EmpresaNombre'))));
     return [
         'transaccionId' => $rows[0]['TransaccionId'],
         'title' => $ingreso ? 'Ingreso de Invitado' : 'Egreso de Invitado',
-        'body' => ($ingreso ? 'Esta ingresando a la empresa: ' : 'Esta saliendo de la empresa: ')
-            . implode(', ', array_map(static fn(array $r): string => $r['Nombre'] . ' ' . $r['Apellido'], $rows)),
+        'empresa' => $empresa,
+        'body' => 'Empresa: ' . $empresa . "\n\n"
+            . ($ingreso ? 'Esta ingresando a la empresa:' : 'Esta saliendo de la empresa:') . "\n"
+            . implode("\n", array_map(static fn(array $r): string => '- ' . $r['Nombre'] . ' ' . $r['Apellido'], $rows)),
         'personas' => array_map(static fn(array $r): array => ['nombre' => $r['Nombre'], 'apellido' => $r['Apellido']], $rows),
     ];
+}
+
+function inout_build_push_messages(array $tokens, array $notification): array
+{
+    $pushBody = inout_text_cut($notification['body'], 2200);
+    if ($pushBody !== $notification['body']) $pushBody .= '… Ver listado completo en la app.';
+    $messages = [];
+    foreach ($tokens as $token) {
+        if (!push_native_token_valido($token['token'], $token['plataforma'])) continue;
+        $messages[] = $token + [
+            'title' => $notification['title'], 'body' => $pushBody,
+            'channelId' => 'visitas-v1', 'sound' => 'campana.wav',
+            'notificationPriority' => 'PRIORITY_MAX',
+            'vibrationPattern' => [0, 500, 300, 500, 300, 700],
+            'data' => ['tipo' => 'inoutSeguridad', 'transaccionId' => $notification['transaccionId']],
+        ];
+    }
+    return $messages;
 }
 
 // La notificación queda persistida junto a los movimientos; el destinatario puede
@@ -86,20 +108,13 @@ function inout_send_notification(PDO $pdo, string $transaccionId, ?string $desti
     $rows = $stmt->fetchAll();
     if ($rows === []) return ['sent' => 0, 'ok' => true];
     $notification = inout_notification($rows);
-    // FCM/APNs limitan el payload a 4 KB; el detalle completo se recupera por API.
-    $pushBody = inout_text_cut($notification['body'], 2200);
-    if ($pushBody !== $notification['body']) $pushBody .= '… Ver listado completo en la app.';
     $tokens = novedades_tokens_por_usuarios($pdo, [$rows[0]['UsuarioVisitaId']]);
-    $messages = [];
-    foreach ($tokens as $token) {
-        if (!push_native_token_valido($token['token'], $token['plataforma'])) continue;
-        $messages[] = $token + [
-            'title' => $notification['title'], 'body' => $pushBody,
-            'channelId' => 'visitas-v1', 'sound' => 'campana.wav',
-            'data' => ['tipo' => 'inoutSeguridad', 'transaccionId' => $transaccionId],
-        ];
-    }
+    $messages = inout_build_push_messages($tokens, $notification);
     $result = push_native_send_batch($messages);
+    if ($messages === [] || !$result['ok']) {
+        $reason = $messages === [] ? 'El destinatario no tiene tokens nativos registrados.' : implode(' | ', $result['errors']);
+        error_log('[inout-push] transaccion=' . $transaccionId . ' destinatario=' . $destinatario . ' ' . inout_text_cut($reason, 1200));
+    }
     if ($result['sent'] > 0) {
         $pdo->prepare('UPDATE InOutSeguridad SET NotificacionEnviadaEn = NOW() WHERE TransaccionId = ? AND UsuarioVisitaId = ?')->execute([$transaccionId, $destinatario]);
     }

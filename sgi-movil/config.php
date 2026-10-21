@@ -146,13 +146,13 @@ return [
     'push' => [
         'fcm' => [
             'service_account_file' => sgi_movil_first_existing_file([
-                getenv('GOOGLE_APPLICATION_CREDENTIALS') ?: '',
-                getenv('SGI_FCM_SERVICE_ACCOUNT_FILE') ?: '',
+                sgi_movil_env_value('GOOGLE_APPLICATION_CREDENTIALS', $sgiMovilEnvPaths),
+                sgi_movil_env_value('SGI_FCM_SERVICE_ACCOUNT_FILE', $sgiMovilEnvPaths),
                 '/etc/sgi/firebase-service-account.json',
                 dirname(__DIR__) . '/firebase-service-account.json',
                 dirname(__DIR__) . '/_private/firebase-service-account.json',
             ]),
-            'project_id' => getenv('SGI_FCM_PROJECT_ID') ?: '',
+            'project_id' => sgi_movil_env_value('SGI_FCM_PROJECT_ID', $sgiMovilEnvPaths),
         ],
         'apns' => [
             'key_file' => getenv('SGI_APNS_KEY_FILE') ?: '',
