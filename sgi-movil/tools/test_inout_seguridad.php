@@ -136,9 +136,98 @@ try {
         $s = $pdo->prepare('SELECT Nombre FROM InOutSeguridad WHERE TransaccionId = ?'); $s->execute([$tid]);
         check_inout($r['status'] === 201 && $s->fetchColumn() === $employee['Nombre'], 'RAEI usa identidad del servidor');
     }
+    // Egresos desde ingresos: un lote puede mezclar empresas, motivos y visitas.
+    $entryIds = [];
+    foreach (['Externo', 'Invitado'] as $kind) {
+        $in = ['transaccionId' => inout_uuid(), 'tipoPersona' => $kind, 'movimiento' => 'Ingreso', 'horario' => '09:30',
+            'motivoId' => '20a00000-0000-4000-8000-000000000003', 'empresaOtra' => 'Empresa selección ' . $kind,
+            'usuarioVisitaId' => $visitor['id'], 'personas' => [['nombre' => 'José', 'apellido' => 'Selección', 'dni' => $kind === 'Externo' ? '98000001' : '98000002']]];
+        check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $in)['status'] === 201, 'ingreso seleccionable ' . $kind);
+        http_inout('/inout-seguridad/leida', $visitor['token'], 'POST', ['transaccionId' => $in['transaccionId']]);
+        $stmt = $pdo->prepare('SELECT * FROM InOutSeguridad WHERE TransaccionId = ?'); $stmt->execute([$in['transaccionId']]); $original = $stmt->fetch();
+        $entryIds[$kind] = $original['Id'];
+        $url = '/inout-seguridad/presentes?tipoPersona=' . $kind . '&q=9800000';
+        $p = http_inout($url, $porter['token']);
+        check_inout($p['status'] === 200 && in_array($original['Id'], array_column($p['body']['personas'], 'id')), 'selector incluye ingreso presente ' . $kind);
+        check_inout(!in_array($original['Id'], array_column(http_inout($url, $sfUser['token'])['body']['personas'], 'id')), 'selector aísla sede ' . $kind);
+        $out = ['transaccionId' => inout_uuid(), 'tipoPersona' => $kind, 'movimiento' => 'Egreso', 'horario' => '18:45', 'ingresosIds' => [$original['Id']],
+            'nombre' => 'Alterado', 'empresaOtra' => 'Alterada', 'motivoId' => inout_uuid(), 'usuarioVisitaId' => $third['id']];
+        $wrong = $out; $wrong['tipoPersona'] = $kind === 'Externo' ? 'Invitado' : 'Externo';
+        check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $wrong)['status'] === 409, 'rechaza ingreso de otro tipo ' . $kind);
+        check_inout(http_inout('/inout-seguridad', $sfUser['token'], 'POST', $out)['status'] === 409, 'rechaza ingreso de otra sede ' . $kind);
+        $bad = $out; $bad['ingresosIds'][] = inout_uuid();
+        check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $bad)['status'] === 409, 'egreso inválido no guarda lote parcial ' . $kind);
+        $stmt->execute([$out['transaccionId']]); check_inout($stmt->fetch() === false, 'sin filas parciales ' . $kind);
+        check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $out)['status'] === 201, 'egreso sin recargar identidad empresa motivo ' . $kind);
+        $stmt->execute([$out['transaccionId']]); $saved = $stmt->fetch();
+        check_inout($saved['IngresoId'] === $original['Id'] && $saved['Dni'] === $original['Dni'] && $saved['Nombre'] === $original['Nombre']
+            && $saved['EmpresaNombre'] === $original['EmpresaNombre'] && $saved['MotivoId'] === $original['MotivoId']
+            && $saved['UsuarioVisitaId'] === $original['UsuarioVisitaId'], 'datos heredados del servidor ' . $kind);
+        check_inout(!in_array($original['Id'], array_column(http_inout($url, $porter['token'])['body']['personas'], 'id')), 'persona retirada desaparece del selector ' . $kind);
+        check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $out)['status'] === 200, 'reintento de egreso sin duplicar ' . $kind);
+        $duplicate = $out; $duplicate['transaccionId'] = inout_uuid();
+        check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $duplicate)['status'] === 409, 'impide segunda salida del mismo ingreso ' . $kind);
+        $notification = http_inout('/inout-seguridad/notificaciones', $visitor['token'])['body']['notificaciones'];
+        check_inout(count(array_filter($notification, static fn($n) => $n['transaccionId'] === $out['transaccionId'] && $n['title'] === 'Egreso de Invitado')) === 1, 'notifica al visitado original ' . $kind);
+        // Un reingreso del mismo DNI debe estar disponible otra vez.
+        $in['transaccionId'] = inout_uuid(); $in['horario'] = '19:00';
+        check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $in)['status'] === 201, 'reingreso ' . $kind);
+        $stmt->execute([$in['transaccionId']]); $reentry = $stmt->fetch();
+        check_inout(in_array($reentry['Id'], array_column(http_inout($url, $porter['token'])['body']['personas'], 'id')), 'selector ofrece reingreso ' . $kind);
+    }
+    check_inout(http_inout('/inout-seguridad/presentes?tipoPersona=RAEI', $porter['token'])['status'] === 422, 'presentes limita tipos externos');
+    check_inout(http_inout('/inout-seguridad/presentes?tipoPersona=Externo', $noRole['token'])['status'] === 403, 'presentes requiere permiso de seguridad');
+    $batchIds = [];
+    foreach ([$visitor, $third] as $index => $recipient) {
+        $in = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Invitado', 'movimiento' => 'Ingreso', 'horario' => '10:00',
+            'motivoId' => '20a00000-0000-4000-8000-00000000000' . ($index + 1), 'empresaOtra' => 'Empresa ' . $index,
+            'usuarioVisitaId' => $recipient['id'], 'personas' => [['nombre' => 'Persona ' . $index, 'apellido' => 'Lote', 'dni' => (string) (97800001 + $index)]]];
+        check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $in)['status'] === 201, 'ingreso para egreso mixto ' . $index);
+        $stmt = $pdo->prepare('SELECT Id FROM InOutSeguridad WHERE TransaccionId = ?'); $stmt->execute([$in['transaccionId']]); $batchIds[] = $stmt->fetchColumn();
+    }
+    $out = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Invitado', 'movimiento' => 'Egreso', 'horario' => '16:30', 'ingresosIds' => $batchIds];
+    check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $out)['status'] === 201, 'egreso múltiple con empresas motivos destinatarios distintos');
+    foreach ([$visitor, $third] as $index => $recipient) {
+        $notes = http_inout('/inout-seguridad/notificaciones', $recipient['token'])['body']['notificaciones'];
+        $notes = array_values(array_filter($notes, static fn($n) => $n['transaccionId'] === $out['transaccionId']));
+        check_inout(count($notes) === 1 && count($notes[0]['personas']) === 1 && $notes[0]['personas'][0]['nombre'] === 'Persona ' . $index, 'cada destinatario ve solo su visita ' . $index);
+    }
+    $legacy = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Externo', 'movimiento' => 'Ingreso', 'horario' => '20:00',
+        'motivoId' => '20a00000-0000-4000-8000-000000000001', 'empresaOtra' => 'Empresa nocturna',
+        'personas' => [['nombre' => 'Turno', 'apellido' => 'Nocturno', 'dni' => '97700001']]];
+    http_inout('/inout-seguridad', $porter['token'], 'POST', $legacy);
+    $pdo->prepare('UPDATE InOutSeguridad SET DateAdd = DATE_SUB(NOW(), INTERVAL 1 DAY) WHERE TransaccionId = ?')->execute([$legacy['transaccionId']]);
+    $stmt->execute([$legacy['transaccionId']]); $nightId = $stmt->fetchColumn();
+    $url = '/inout-seguridad/presentes?tipoPersona=Externo&q=97700001';
+    check_inout(in_array($nightId, array_column(http_inout($url, $porter['token'])['body']['personas'], 'id')), 'presentes incluye ingreso de día anterior');
+    $legacy['transaccionId'] = inout_uuid(); $legacy['movimiento'] = 'Egreso'; $legacy['horario'] = '06:00';
+    http_inout('/inout-seguridad', $porter['token'], 'POST', $legacy);
+    check_inout(!in_array($nightId, array_column(http_inout($url, $porter['token'])['body']['personas'], 'id')), 'egreso de app anterior cierra presencia nocturna');
+    // El filtro usa la fecha de carga, también para el total y las páginas.
+    $dateIds = [];
+    foreach (['2001-02-03 00:00:00', '2001-02-03 23:59:59', '2001-02-04 00:00:00'] as $index => $stamp) {
+        $dated = $legacy; $dated['transaccionId'] = inout_uuid(); $dated['movimiento'] = 'Ingreso';
+        $dated['personas'][0]['dni'] = (string) (97600001 + $index);
+        check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $dated)['status'] === 201, 'crea movimiento para filtro de fecha ' . $index);
+        $pdo->prepare('UPDATE InOutSeguridad SET DateAdd = ? WHERE TransaccionId = ?')->execute([$stamp, $dated['transaccionId']]);
+        $stmt->execute([$dated['transaccionId']]); $dateIds[] = $stmt->fetchColumn();
+    }
+    $dated = http_inout('/inout-seguridad?fecha=2001-02-03', $porter['token']);
+    $listed = array_column($dated['body']['registros'], 'id');
+    check_inout($dated['status'] === 200 && in_array($dateIds[0], $listed) && in_array($dateIds[1], $listed) && !in_array($dateIds[2], $listed), 'incluye todo el día y excluye medianoche siguiente');
+    check_inout($dated['body']['fecha'] === '2001-02-03' && $dated['body']['total'] === 2, 'total filtrado por fecha');
+    $nextPage = http_inout('/inout-seguridad?fecha=2001-02-03&pagina=2', $porter['token']);
+    check_inout($nextPage['body']['registros'] === [] && $nextPage['body']['total'] === 2, 'paginación conserva filtro de fecha');
+    $today = http_inout('/inout-seguridad', $porter['token']);
+    check_inout($today['body']['fecha'] === date('Y-m-d') && array_intersect($dateIds, array_column($today['body']['registros'], 'id')) === [], 'fecha predeterminada es hoy');
+    check_inout(http_inout('/inout-seguridad?fecha=2001-02-03', $sfUser['token'])['body']['total'] === 0, 'filtro por fecha respeta sede');
+    foreach (['2026-02-30', '21-10-2026', ''] as $invalidDate) {
+        check_inout(http_inout('/inout-seguridad?fecha=' . $invalidDate, $porter['token'])['status'] === 422, 'rechaza fecha inválida ' . $invalidDate);
+    }
     echo "TOTAL: $checks verificaciones correctas." . PHP_EOL;
 } finally {
         foreach ($ids as $id) {
+            $pdo->prepare('DELETE FROM InOutSeguridad WHERE IngresoId IS NOT NULL AND (UserAdd = ? OR UsuarioVisitaId = ?)')->execute([$id, $id]);
             $pdo->prepare('DELETE FROM InOutSeguridad WHERE UserAdd = ? OR UsuarioVisitaId = ?')->execute([$id, $id]);
             $pdo->prepare('DELETE FROM RolUsuario WHERE UsuariosId = ?')->execute([$id]);
             $pdo->prepare('DELETE FROM Usuarios WHERE Id = ?')->execute([$id]);

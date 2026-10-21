@@ -67,11 +67,22 @@ function inout_notification(array $rows): array
 }
 
 // La notificación queda persistida junto a los movimientos; el destinatario puede
-// recuperarla incluso si el proveedor push o su dispositivo estaban desconectados.
-function inout_send_notification(PDO $pdo, string $transaccionId): array
+// recuperarla incluso si el proveedor o su dispositivo estaban desconectados.
+function inout_send_notification(PDO $pdo, string $transaccionId, ?string $destinatario = null): array
 {
-    $stmt = $pdo->prepare('SELECT * FROM InOutSeguridad WHERE TransaccionId = ? AND Estado = 1 AND UsuarioVisitaId IS NOT NULL AND NotificacionLeidaEn IS NULL ORDER BY Apellido, Nombre');
-    $stmt->execute([$transaccionId]);
+    if ($destinatario === null) {
+        $stmt = $pdo->prepare('SELECT DISTINCT UsuarioVisitaId FROM InOutSeguridad WHERE TransaccionId = ? AND Estado = 1 AND UsuarioVisitaId IS NOT NULL AND NotificacionLeidaEn IS NULL');
+        $stmt->execute([$transaccionId]);
+        $result = ['sent' => 0, 'ok' => true];
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+            $sent = inout_send_notification($pdo, $transaccionId, $uid);
+            $result['sent'] += $sent['sent'];
+            $result['ok'] = $result['ok'] && $sent['ok'];
+        }
+        return $result;
+    }
+    $stmt = $pdo->prepare('SELECT * FROM InOutSeguridad WHERE TransaccionId = ? AND UsuarioVisitaId = ? AND Estado = 1 AND NotificacionLeidaEn IS NULL ORDER BY Apellido, Nombre');
+    $stmt->execute([$transaccionId, $destinatario]);
     $rows = $stmt->fetchAll();
     if ($rows === []) return ['sent' => 0, 'ok' => true];
     $notification = inout_notification($rows);
@@ -90,9 +101,81 @@ function inout_send_notification(PDO $pdo, string $transaccionId): array
     }
     $result = push_native_send_batch($messages);
     if ($result['sent'] > 0) {
-        $pdo->prepare('UPDATE InOutSeguridad SET NotificacionEnviadaEn = NOW() WHERE TransaccionId = ?')->execute([$transaccionId]);
+        $pdo->prepare('UPDATE InOutSeguridad SET NotificacionEnviadaEn = NOW() WHERE TransaccionId = ? AND UsuarioVisitaId = ?')->execute([$transaccionId, $destinatario]);
     }
     return ['sent' => $result['sent'], 'ok' => $result['ok'] && $messages !== []];
+}
+
+function inout_presentes(PDO $pdo, string $sede, string $tipo, string $query = '', ?array $ids = null): array
+{
+    // Los egresos nuevos cierran un ingreso concreto. Para movimientos anteriores
+    // sin vínculo, se respeta el último movimiento de ese DNI en la misma sede.
+    $sql = "SELECT i.*, m.Nombre AS MotivoNombre FROM InOutSeguridad i
+        INNER JOIN InOutSeguridadMotivo m ON m.Id = i.MotivoId
+        WHERE i.Sede = ? AND i.TipoPersona = ? AND i.Estado = 1 AND i.Movimiento = 'Ingreso'
+        AND NOT EXISTS (SELECT 1 FROM InOutSeguridad e WHERE e.IngresoId = i.Id)
+        AND NOT EXISTS (SELECT 1 FROM InOutSeguridad n WHERE n.Sede = i.Sede AND n.Dni = i.Dni
+            AND n.Estado = 1 AND n.IngresoId IS NULL AND n.Id <> i.Id
+            AND (n.DateAdd > i.DateAdd OR (n.DateAdd = i.DateAdd AND
+                (n.Horario > i.Horario OR (n.Horario = i.Horario AND
+                    (n.Movimiento = 'Egreso' OR n.Id > i.Id))))))";
+    $params = [$sede, $tipo];
+    if ($ids !== null) {
+        $sql .= ' AND i.Id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
+        $params = array_merge($params, $ids);
+    } else {
+        $sql .= " AND CONCAT(i.Nombre, ' ', i.Apellido, ' ', i.Dni, ' ', i.EmpresaNombre) LIKE ?";
+        $params[] = '%' . trim($query) . '%';
+    }
+    $sql .= ' ORDER BY i.Apellido, i.Nombre, i.Id LIMIT 100';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll();
+}
+
+function inout_egreso_desde_ingresos(PDO $pdo, array $config, array $b, string $sede, string $uid): void
+{
+    $ids = $b['ingresosIds'];
+    if (!is_array($ids) || count($ids) < 1 || count($ids) > 50) inout_error('Seleccioná entre 1 y 50 personas presentes.', $config);
+    foreach ($ids as $id) {
+        if (!is_string($id) || !preg_match('/^[0-9a-f-]{36}$/i', $id)) inout_error('Ingreso seleccionado inválido.', $config);
+    }
+    if (count(array_unique($ids)) !== count($ids)) inout_error('Hay personas repetidas en la selección.', $config);
+    sort($ids); // Mismo orden de bloqueo para cargas concurrentes con varias personas.
+    $pdo->beginTransaction();
+    try {
+        $lock = $pdo->prepare('SELECT Id FROM InOutSeguridad WHERE Id IN (' . implode(',', array_fill(0, count($ids), '?')) . ') ORDER BY Id FOR UPDATE');
+        $lock->execute($ids);
+        $lock->fetchAll();
+        $retry = $pdo->prepare('SELECT UserAdd, COUNT(*) AS Cantidad FROM InOutSeguridad WHERE TransaccionId = ? GROUP BY UserAdd');
+        $retry->execute([$b['transaccionId']]);
+        if ($existing = $retry->fetch()) {
+            $pdo->rollBack();
+            if ($existing['UserAdd'] !== $uid) inout_error('Identificador ya utilizado.', $config, 409);
+            json_response(['ok' => true, 'cantidad' => (int) $existing['Cantidad'], 'reintento' => true], 200, $config);
+            return;
+        }
+        $rows = inout_presentes($pdo, $sede, $b['tipoPersona'], '', $ids);
+        if (count($rows) !== count($ids)) {
+            $pdo->rollBack();
+            inout_error('Alguna persona ya se retiró o no pertenece a esta sede y tipo. Actualizá la selección.', $config, 409);
+        }
+        $insert = $pdo->prepare("INSERT INTO InOutSeguridad (Id, TransaccionId, IngresoId, TipoPersona, Movimiento, Nombre, Apellido, Dni, EmpresaId, EmpresaNombre, Horario, MotivoId, UsuarioVisitaId, Nota, Sede, DateAdd, UserAdd, Estado)
+            VALUES (?, ?, ?, ?, 'Egreso', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 1)");
+        foreach ($rows as $row) {
+            $insert->execute([inout_uuid(), $b['transaccionId'], $row['Id'], $row['TipoPersona'], $row['Nombre'], $row['Apellido'], $row['Dni'],
+                $row['EmpresaId'], $row['EmpresaNombre'], $b['horario'] . ':00', $row['MotivoId'], $row['UsuarioVisitaId'],
+                trim((string) ($b['nota'] ?? '')) ?: null, $sede, $uid]);
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+    $push = ['ok' => true];
+    try { $push = inout_send_notification($pdo, $b['transaccionId']); }
+    catch (Throwable $e) { error_log('[inout] push pendiente: ' . $e->getMessage()); $push['ok'] = false; }
+    json_response(['ok' => true, 'cantidad' => count($rows), 'transaccionId' => $b['transaccionId'], 'notificacionPendiente' => !$push['ok']], 201, $config);
 }
 
 function handle_inout_seguridad(PDO $pdo, array $config, string $path, string $method): void
@@ -120,6 +203,18 @@ function handle_inout_seguridad(PDO $pdo, array $config, string $path, string $m
 
     inout_require_permission($auth, $config);
     $sede = inout_sede($pdo, $auth['user'], $config);
+    if ($path === '/inout-seguridad/presentes' && $method === 'GET') {
+        $tipo = (string) ($_GET['tipoPersona'] ?? '');
+        if (!in_array($tipo, ['Externo', 'Invitado'], true)) inout_error('Seleccioná externos o invitados.', $config);
+        $rows = inout_presentes($pdo, $sede, $tipo, (string) ($_GET['q'] ?? ''));
+        $personas = array_map(static fn(array $r): array => [
+            'id' => $r['Id'], 'label' => $r['Nombre'] . ' ' . $r['Apellido'], 'dni' => $r['Dni'],
+            'empresa' => $r['EmpresaNombre'], 'motivo' => $r['MotivoNombre'],
+            'ingreso' => date('d/m/Y', strtotime($r['DateAdd'])) . ' ' . substr($r['Horario'], 0, 5),
+        ], $rows);
+        json_response(['personas' => $personas, 'sede' => $sede], 200, $config);
+        return;
+    }
     if ($path === '/inout-seguridad/opciones' && $method === 'GET') {
         $recurso = (string) ($_GET['recurso'] ?? 'motivos');
         $q = '%' . trim((string) ($_GET['q'] ?? '')) . '%';
@@ -144,13 +239,18 @@ function handle_inout_seguridad(PDO $pdo, array $config, string $path, string $m
         return;
     }
     if ($path === '/inout-seguridad' && $method === 'GET') {
+        $fecha = (string) ($_GET['fecha'] ?? date('Y-m-d'));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/D', $fecha)) inout_error('Fecha inválida. Usá el formato YYYY-MM-DD.', $config);
+        $dia = DateTimeImmutable::createFromFormat('!Y-m-d', $fecha);
+        if (!$dia || $dia->format('Y-m-d') !== $fecha) inout_error('Fecha inválida. Usá el formato YYYY-MM-DD.', $config);
+        $params = [$sede, $dia->format('Y-m-d H:i:s'), $dia->modify('+1 day')->format('Y-m-d H:i:s')];
         $page = max(1, min(1000000, (int) ($_GET['pagina'] ?? 1)));
-        $count = $pdo->prepare('SELECT COUNT(*) FROM InOutSeguridad WHERE Sede = ? AND Estado = 1');
-        $count->execute([$sede]);
+        $count = $pdo->prepare('SELECT COUNT(*) FROM InOutSeguridad WHERE Sede = ? AND Estado = 1 AND DateAdd >= ? AND DateAdd < ?');
+        $count->execute($params);
         $offset = ($page - 1) * 20;
-        $stmt = $pdo->prepare("SELECT Id AS id, Movimiento AS movimiento, DATE_FORMAT(Horario, '%H:%i') AS horario, Nombre AS nombre, Apellido AS apellido, EmpresaNombre AS empresa, DATE_FORMAT(DateAdd, '%d/%m/%Y') AS fecha FROM InOutSeguridad WHERE Sede = ? AND Estado = 1 ORDER BY DateAdd DESC, Id DESC LIMIT 20 OFFSET $offset");
-        $stmt->execute([$sede]);
-        json_response(['registros' => $stmt->fetchAll(), 'total' => (int) $count->fetchColumn(), 'pagina' => $page, 'sede' => $sede], 200, $config);
+        $stmt = $pdo->prepare("SELECT Id AS id, Movimiento AS movimiento, DATE_FORMAT(Horario, '%H:%i') AS horario, Nombre AS nombre, Apellido AS apellido, EmpresaNombre AS empresa, DATE_FORMAT(DateAdd, '%d/%m/%Y') AS fecha FROM InOutSeguridad WHERE Sede = ? AND Estado = 1 AND DateAdd >= ? AND DateAdd < ? ORDER BY DateAdd DESC, Id DESC LIMIT 20 OFFSET $offset");
+        $stmt->execute($params);
+        json_response(['registros' => $stmt->fetchAll(), 'total' => (int) $count->fetchColumn(), 'pagina' => $page, 'sede' => $sede, 'fecha' => $fecha], 200, $config);
         return;
     }
     if ($path !== '/inout-seguridad' || $method !== 'POST') inout_error('Ruta no encontrada', $config, 404);
@@ -166,6 +266,21 @@ function handle_inout_seguridad(PDO $pdo, array $config, string $path, string $m
     if (!is_string($hora) || !preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $hora)) inout_error('Ingresá el horario en formato HH:mm.', $config);
     $nota = trim((string) ($b['nota'] ?? ''));
     if (inout_text_length($nota) > 2000) inout_error('La nota admite hasta 2000 caracteres.', $config);
+    // Resolver reintentos antes de comprobar presencia: el primer envío ya pudo
+    // haber cerrado los ingresos aunque el teléfono no recibiera la respuesta.
+    $stmt = $pdo->prepare('SELECT UserAdd, COUNT(*) AS Cantidad FROM InOutSeguridad WHERE TransaccionId = ? GROUP BY UserAdd');
+    $stmt->execute([$transaction]);
+    $existing = $stmt->fetch();
+    if ($existing) {
+        if ($existing['UserAdd'] !== $uid) inout_error('Identificador ya utilizado.', $config, 409);
+        json_response(['ok' => true, 'cantidad' => (int) $existing['Cantidad'], 'transaccionId' => $transaction, 'reintento' => true], 200, $config);
+        return;
+    }
+    if (array_key_exists('ingresosIds', $b)) {
+        if ($movimiento !== 'Egreso' || !in_array($tipo, ['Externo', 'Invitado'], true)) inout_error('La selección de presentes corresponde a egresos de externos o invitados.', $config);
+        inout_egreso_desde_ingresos($pdo, $config, $b, $sede, $uid);
+        return;
+    }
     $stmt = $pdo->prepare('SELECT Id FROM InOutSeguridadMotivo WHERE Id = ? AND Estado = 1');
     $stmt->execute([$b['motivoId'] ?? '']);
     if (!$stmt->fetchColumn()) inout_error('Seleccioná un motivo activo.', $config);
@@ -206,15 +321,6 @@ function handle_inout_seguridad(PDO $pdo, array $config, string $path, string $m
             $dnis[$p['dni']] = true;
         }
         unset($p);
-    }
-    // El mismo identificador permite reintentar ante cortes de red sin duplicar personas.
-    $stmt = $pdo->prepare('SELECT UserAdd, COUNT(*) AS Cantidad FROM InOutSeguridad WHERE TransaccionId = ? GROUP BY UserAdd');
-    $stmt->execute([$transaction]);
-    $existing = $stmt->fetch();
-    if ($existing) {
-        if ($existing['UserAdd'] !== $uid) inout_error('Identificador ya utilizado.', $config, 409);
-        json_response(['ok' => true, 'cantidad' => (int) $existing['Cantidad'], 'transaccionId' => $transaction, 'reintento' => true], 200, $config);
-        return;
     }
     $pdo->beginTransaction();
     try {
