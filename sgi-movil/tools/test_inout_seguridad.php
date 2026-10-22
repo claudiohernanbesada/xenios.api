@@ -272,6 +272,11 @@ try {
     check_inout(count($due) === 1 && $due[0]['UsuarioVisitaId'] === $third['id'], 'leer desde web detiene solo los recordatorios del lector');
     check_inout(inout_notificaciones_usuario($pdo, $visitor['id'], $multi['transaccionId']) === [], 'lector deja de ver el ingreso');
     check_inout(count(inout_notificaciones_usuario($pdo, $third['id'], $multi['transaccionId'])) === 2, 'otro destinatario sigue pendiente tras lectura ajena');
+    $readerHistory = http_inout('/inout-seguridad/historial/' . $multi['transaccionId'], $visitor['token']);
+    $otherHistory = http_inout('/inout-seguridad/historial/' . $multi['transaccionId'], $third['token']);
+    check_inout($readerHistory['status'] === 200 && $readerHistory['body']['novedad']['leida'] === true
+        && $otherHistory['body']['novedad']['leida'] === false, 'historial conserva lecturas independientes de cada destinatario');
+    check_inout(http_inout('/inout-seguridad/historial/' . $multi['transaccionId'], $noRole['token'])['status'] === 404, 'historial no expone visitas ajenas');
     $single = $multi; $single['transaccionId'] = inout_uuid(); $single['usuariosVisitaIds'] = [$third['id']];
     $single['personas'] = [['nombre' => 'Solo', 'apellido' => 'Tercero', 'dni' => '97500003']];
     check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $single)['status'] === 201, 'ingreso adicional con otro conjunto de destinatarios');
@@ -307,6 +312,46 @@ try {
     check_inout(http_inout('/novedades/' . $newsId . '/leida', $visitor['token'], 'POST')['status'] === 200, 'confirmación explícita de lectura');
     check_inout(http_inout('/novedades/' . $newsId . '/leida', $visitor['token'], 'POST')['status'] === 200, 'reintento de lectura es idempotente');
     check_inout(http_inout('/novedades', $visitor['token'])['body']['noLeidas'] === 0, 'confirmar elimina novedad de alertas pendientes');
+    // Historial mensual: integrar visitas sin reenviar ni duplicar alertas.
+    check_inout(http_inout('/novedades?historial=true&anio=2026&mes=13', $visitor['token'])['status'] === 422, 'historial rechaza mes invalido');
+    check_inout(http_inout('/novedades?historial=true&anio=abc&mes=2', $visitor['token'])['status'] === 422, 'historial rechaza año invalido');
+    $historical = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Invitado', 'movimiento' => 'Ingreso', 'horario' => '23:55',
+        'motivoId' => $testMotivos[0], 'empresaOtra' => 'Empresa historial', 'nota' => 'Documentación histórica',
+        'usuarioVisitaId' => $visitor['id'], 'personas' => [['nombre' => 'Historia', 'apellido' => 'Prueba', 'dni' => '96990001']]];
+    check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $historical)['status'] === 201, 'crea visita para historial mensual');
+    $pdo->prepare('UPDATE InOutSeguridad SET DateAdd = ? WHERE TransaccionId = ?')->execute(['2001-02-28 23:59:59', $historical['transaccionId']]);
+    $pdo->prepare('UPDATE MovilNovedad SET CreadoEn = ? WHERE Id = ?')->execute(['2001-02-01 00:00:00', $newsId]);
+    $historyPath = '/novedades?historial=true&anio=2001&mes=2';
+    $history = http_inout($historyPath, $visitor['token']);
+    $historyId = 'visita-' . $historical['transaccionId'];
+    check_inout($history['status'] === 200 && in_array($historyId, array_column($history['body']['novedades'], 'id'))
+        && in_array($newsId, array_column($history['body']['novedades'], 'id')), 'mes historico incluye novedades y visitas en ambos extremos del mes');
+    check_inout(in_array(2001, $history['body']['aniosDisponibles']), 'selector ofrece años con historial propio');
+    $visitItem = http_inout('/inout-seguridad/historial/' . $historical['transaccionId'], $visitor['token'])['body']['novedad'];
+    check_inout($visitItem['leida'] === false && str_contains($visitItem['cuerpo'], 'Documentación histórica')
+        && str_contains($visitItem['cuerpo'], 'Historia Prueba'), 'detalle conserva nota y nombres sin marcar lectura por consultar');
+    http_inout('/inout-seguridad/leida', $visitor['token'], 'POST', ['transaccionId' => $historical['transaccionId']]);
+    $afterRead = http_inout('/inout-seguridad/historial/' . $historical['transaccionId'], $visitor['token'])['body']['novedad'];
+    check_inout($afterRead['leida'] === true && $afterRead['leidaEn'] !== null, 'leer visita detiene alerta pero conserva historial');
+    $march = http_inout('/novedades?historial=true&anio=2001&mes=3', $visitor['token']);
+    check_inout(!in_array($historyId, array_column($march['body']['novedades'], 'id')), 'visita no se repite en mes siguiente');
+    $foreignHistory = http_inout($historyPath, $third['token']);
+    check_inout(!in_array($historyId, array_column($foreignHistory['body']['novedades'], 'id'))
+        && !in_array($newsId, array_column($foreignHistory['body']['novedades'], 'id')), 'historial mensual respeta destinatarios');
+    $pdo->prepare('DELETE d FROM InOutSeguridadDestinatario d INNER JOIN InOutSeguridad i ON i.Id = d.InOutSeguridadId WHERE i.TransaccionId = ?')
+        ->execute([$historical['transaccionId']]);
+    $legacyHistory = http_inout('/inout-seguridad/historial/' . $historical['transaccionId'], $visitor['token']);
+    check_inout($legacyHistory['status'] === 200 && $legacyHistory['body']['novedad']['leida'] === true,
+        'historial recupera avisos antiguos sin tabla de destinatarios por registro');
+    $bulkNews = $pdo->prepare('INSERT INTO MovilNovedad (Id, Titulo, Cuerpo, EnviadoPorUsuarioId, CreadoEn) VALUES (?, ?, ?, ?, ?)');
+    $bulkRecipient = $pdo->prepare('INSERT INTO MovilNovedadUsuario (NovedadId, UsuarioId, LeidaEn) VALUES (?, ?, NULL)');
+    for ($index = 0; $index < 105; $index++) {
+        $bulkId = inout_uuid();
+        $bulkNews->execute([$bulkId, 'Historial ' . $index, 'Mensaje de prueba sin push', $porter['id'], '2001-02-15 12:00:00']);
+        $bulkRecipient->execute([$bulkId, $visitor['id']]);
+    }
+    $completeHistory = http_inout($historyPath, $visitor['token']);
+    check_inout(count($completeHistory['body']['novedades']) === 107, 'historial mensual completo supera limite anterior de 100 sin truncar busqueda');
     // Registrar otro teléfono no debe dejar al primero sin push.
     $devices = [bin2hex(random_bytes(32)), bin2hex(random_bytes(32))];
     foreach ($devices as $device) {

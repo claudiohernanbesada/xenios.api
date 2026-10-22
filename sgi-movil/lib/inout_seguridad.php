@@ -261,9 +261,17 @@ function inout_egreso_desde_ingresos(PDO $pdo, array $config, array $b, string $
 
 function handle_inout_seguridad(PDO $pdo, array $config, string $path, string $method): void
 {
-    $notificacion = in_array($path, ['/inout-seguridad/notificaciones', '/inout-seguridad/leida'], true);
+    $historial = preg_match('#^/inout-seguridad/historial/([0-9a-f-]{36})$#i', $path, $historialMatch) === 1;
+    $notificacion = $historial || in_array($path, ['/inout-seguridad/notificaciones', '/inout-seguridad/leida'], true);
     $auth = $notificacion ? require_auth_or_web_bridge($pdo, $config) : require_auth($pdo, $config);
     $uid = $auth['user']['Id'];
+    if ($historial && $method === 'GET') {
+        require_once __DIR__ . '/novedades_historial.php';
+        $items = novedades_historial_visitas($pdo, $uid, null, null, $historialMatch[1]);
+        if ($items === []) { json_response(['message' => 'Aviso de visita no encontrado.'], 404, $config); return; }
+        json_response(['novedad' => $items[0]], 200, $config);
+        return;
+    }
 
     // Las visitas están dirigidas al usuario: no requieren permiso de portería.
     if ($path === '/inout-seguridad/notificaciones' && $method === 'GET') {

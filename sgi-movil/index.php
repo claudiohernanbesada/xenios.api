@@ -966,6 +966,17 @@ function handle_novedades_list(PDO $pdo, array $config): void
     novedades_require_tables($pdo, $config);
 
     $uid = (string) $auth['user']['Id'];
+    if (filter_var($_GET['historial'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+        $anio = filter_var($_GET['anio'] ?? null, FILTER_VALIDATE_INT);
+        $mes = filter_var($_GET['mes'] ?? null, FILTER_VALIDATE_INT);
+        if ($anio === false || $anio < 1900 || $anio > 9998 || $mes === false || $mes < 1 || $mes > 12) {
+            json_response(['message' => 'Seleccioná un mes y año válidos.'], 422, $config);
+            return;
+        }
+        require_once __DIR__ . '/lib/novedades_historial.php';
+        json_response(novedades_historial_mes($pdo, $uid, $anio, $mes), 200, $config);
+        return;
+    }
     json_response([
         'novedades' => novedades_listar_usuario($pdo, $uid),
         'noLeidas' => novedades_contar_no_leidas($pdo, $uid),
