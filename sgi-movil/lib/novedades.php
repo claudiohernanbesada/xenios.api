@@ -292,7 +292,7 @@ function novedades_normalizar_plataforma(?string $plataforma): ?string
     }
 
     // Capacidad del binario nativo; entra en el varchar(16) existente.
-    if ($valor === 'android:ring-v1') return $valor;
+    if (in_array($valor, ['android:ring-v1', 'android:ring-v2'], true)) return $valor;
 
     $base = explode(':', $valor, 2)[0];
     if ($base === 'android') {
@@ -356,6 +356,25 @@ function novedades_contar_no_leidas(PDO $pdo, string $usuarioId): int
     return (int) $stmt->fetchColumn();
 }
 
+/** Detiene una alerta nativa al confirmar lectura desde cualquier cliente. */
+function novedades_cancelar_alerta(PDO $pdo, string $usuarioId, string $id, string $tipo): void
+{
+    try {
+        $messages = [];
+        foreach (novedades_tokens_por_usuarios($pdo, [$usuarioId]) as $registration) {
+            if ($registration['plataforma'] !== 'android:ring-v2') continue;
+            $messages[] = ['token' => $registration['token'], 'plataforma' => 'android:ring-v2',
+                'data' => ['tipo' => 'lecturaConfirmada', 'alertaId' => $id, 'alertaTipo' => $tipo]];
+        }
+        if ($messages === []) return;
+        $result = push_native_send_batch($messages);
+        if (!$result['ok']) error_log('[alerta-lectura] ' . push_native_text_cut(implode(' | ', $result['errors']), 1000));
+    } catch (Throwable $e) {
+        // La lectura ya está guardada: una falla push no la revierte.
+        error_log('[alerta-lectura] ' . push_native_text_cut($e->getMessage(), 1000));
+    }
+}
+
 function novedades_marcar_leida(PDO $pdo, string $usuarioId, string $novedadId): bool
 {
     $stmt = $pdo->prepare(
@@ -365,11 +384,16 @@ function novedades_marcar_leida(PDO $pdo, string $usuarioId, string $novedadId):
     $ahora = novedades_now_string();
     $stmt->execute(['leida' => $ahora, 'uid' => $usuarioId, 'nid' => $novedadId]);
 
-    if ($stmt->rowCount() > 0) return true;
+    if ($stmt->rowCount() > 0) {
+        novedades_cancelar_alerta($pdo, $usuarioId, $novedadId, 'novedad');
+        return true;
+    }
     // Confirmar dos veces la misma lectura no debe fallar ni cambiar su fecha.
     $exists = $pdo->prepare('SELECT 1 FROM MovilNovedadUsuario WHERE UsuarioId = ? AND NovedadId = ? AND LeidaEn IS NOT NULL');
     $exists->execute([$usuarioId, $novedadId]);
-    return $exists->fetchColumn() !== false;
+    $found = $exists->fetchColumn() !== false;
+    if ($found) novedades_cancelar_alerta($pdo, $usuarioId, $novedadId, 'novedad');
+    return $found;
 }
 
 function novedades_format_datetime(string $value): string

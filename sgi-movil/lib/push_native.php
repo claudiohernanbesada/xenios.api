@@ -22,7 +22,7 @@ function push_native_text_cut(string $value, int $maxBytes): string
 
 function push_native_es_android(string $plataforma): bool
 {
-    return in_array($plataforma, ['android', 'android:ring-v1'], true);
+    return in_array($plataforma, ['android', 'android:ring-v1', 'android:ring-v2'], true);
 }
 
 function push_native_token_valido(string $token, string $plataforma): bool
@@ -349,7 +349,7 @@ function push_fcm_build_payload(array $message): array
     // Un payload FCM con "notification" es presentado por Google en segundo
     // plano y no permite activar FLAG_INSISTENT desde nuestra aplicación.
     $tipo = $data['tipo'] ?? '';
-    if (($message['plataforma'] ?? '') === 'android:ring-v1'
+    if (in_array(($message['plataforma'] ?? ''), ['android:ring-v1', 'android:ring-v2'], true)
         && in_array($tipo, ['novedad', 'inoutSeguridad'], true)) {
         $id = $tipo === 'novedad' ? ($data['novedadId'] ?? '') : ($data['transaccionId'] ?? '');
         $tag = ($tipo === 'novedad' ? 'novedad-' : 'visita-') . $id;
@@ -367,6 +367,13 @@ function push_fcm_build_payload(array $message): array
                 'color' => '#007BFF',
             ],
             'android' => ['priority' => 'HIGH'],
+        ]];
+    }
+
+    if (($message['plataforma'] ?? '') === 'android:ring-v2' && $tipo === 'lecturaConfirmada') {
+        return ['message' => ['token' => (string) $message['token'],
+            'data' => ['body' => json_encode($data, JSON_THROW_ON_ERROR), 'tag' => 'lectura-' . $data['alertaId']],
+            'android' => ['priority' => 'HIGH', 'ttl' => '300s'],
         ]];
     }
 

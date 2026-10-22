@@ -56,4 +56,11 @@ foreach ([$messages[0], $news[0]] as $message) {
 }
 $fichada = push_native_build_fichada_messages([['token' => str_repeat('a', 32), 'plataforma' => 'android:ring-v1', 'fecha' => '21/10/2026', 'hora' => '12:00']])[0];
 check_push_visita(isset(push_fcm_build_payload($fichada)['message']['notification']), 'fichadas conserva aviso normal en el nuevo binario');
+$cancel = push_fcm_build_payload(['token' => str_repeat('a', 32), 'plataforma' => 'android:ring-v2',
+    'data' => ['tipo' => 'lecturaConfirmada', 'alertaId' => 'id-prueba', 'alertaTipo' => 'novedad']])['message'];
+check_push_visita(!isset($cancel['notification']) && !isset($cancel['data']['title']) && !isset($cancel['data']['message']), 'lectura remota no muestra ni reproduce otra alerta');
+check_push_visita(json_decode($cancel['data']['body'], true)['alertaId'] === 'id-prueba' && $cancel['android']['ttl'] === '300s', 'cancelacion remota identifica aviso y caduca');
+check_push_visita(novedades_normalizar_plataforma('android:ring-v2') === 'android:ring-v2', 'conserva capacidad de cancelacion remota');
+$nativeV2 = $news[0]; $nativeV2['plataforma'] = 'android:ring-v2';
+check_push_visita(!isset(push_fcm_build_payload($nativeV2)['message']['notification']), 'receptor v2 conserva alerta nativa insistente');
 echo 'TOTAL: ' . $checks . ' verificaciones correctas.' . PHP_EOL;

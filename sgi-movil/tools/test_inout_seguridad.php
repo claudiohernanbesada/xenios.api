@@ -5,6 +5,8 @@ require_once dirname(__DIR__) . '/lib/db.php';
 require_once dirname(__DIR__) . '/lib/inout_seguridad.php';
 $config = require dirname(__DIR__) . '/config.php';
 $pdo = db_connect($config);
+$testMotivos = $pdo->query('SELECT Id FROM InOutSeguridadMotivo WHERE Estado = 1 ORDER BY Id LIMIT 3')->fetchAll(PDO::FETCH_COLUMN);
+if (count($testMotivos) < 3) throw new RuntimeException('La prueba requiere tres motivos activos.');
 $ids = []; $checks = 0;
 function check_inout(bool $condition, string $label): void {
     global $checks;
@@ -71,7 +73,7 @@ try {
     }
     $transaction = inout_uuid();
     $body = ['transaccionId' => $transaction, 'tipoPersona' => 'Invitado', 'movimiento' => 'Ingreso', 'horario' => '09:30',
-        'motivoId' => '20a00000-0000-4000-8000-000000000003', 'empresaOtra' => 'Empresa de prueba', 'personas' => [
+        'motivoId' => $testMotivos[2], 'empresaOtra' => 'Empresa de prueba', 'personas' => [
             ['nombre' => 'Ana', 'apellido' => 'Prueba', 'dni' => '99000001'], ['nombre' => 'Luis', 'apellido' => 'Prueba', 'dni' => '99000002']]];
     check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $body)['status'] === 422, 'invitados requieren destinatario');
     $body['usuarioVisitaId'] = $visitor['id'];
@@ -134,7 +136,7 @@ try {
         $r = http_inout('/inout-seguridad/personal?legajo=' . $employee['Legajo'], $porter['token']);
         check_inout($r['status'] === 200 && $r['body']['personal']['nombre'] === $employee['Nombre'], 'obtiene Personal por legajo');
         $tid = inout_uuid();
-        $r = http_inout('/inout-seguridad', $porter['token'], 'POST', ['transaccionId' => $tid, 'tipoPersona' => 'RAEI', 'movimiento' => 'Ingreso', 'legajo' => $employee['Legajo'], 'horario' => '08:00', 'motivoId' => '20a00000-0000-4000-8000-000000000001', 'nombre' => 'Manipulado']);
+        $r = http_inout('/inout-seguridad', $porter['token'], 'POST', ['transaccionId' => $tid, 'tipoPersona' => 'RAEI', 'movimiento' => 'Ingreso', 'legajo' => $employee['Legajo'], 'horario' => '08:00', 'motivoId' => $testMotivos[0], 'nombre' => 'Manipulado']);
         $s = $pdo->prepare('SELECT Nombre FROM InOutSeguridad WHERE TransaccionId = ?'); $s->execute([$tid]);
         check_inout($r['status'] === 201 && $s->fetchColumn() === $employee['Nombre'], 'RAEI usa identidad del servidor');
     }
@@ -142,7 +144,7 @@ try {
     $entryIds = [];
     foreach (['Externo', 'Invitado'] as $kind) {
         $in = ['transaccionId' => inout_uuid(), 'tipoPersona' => $kind, 'movimiento' => 'Ingreso', 'horario' => '09:30',
-            'motivoId' => '20a00000-0000-4000-8000-000000000003', 'empresaOtra' => 'Empresa selección ' . $kind,
+            'motivoId' => $testMotivos[2], 'empresaOtra' => 'Empresa selección ' . $kind,
             'usuarioVisitaId' => $visitor['id'], 'personas' => [['nombre' => 'José', 'apellido' => 'Selección', 'dni' => $kind === 'Externo' ? '98000001' : '98000002']]];
         check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $in)['status'] === 201, 'ingreso seleccionable ' . $kind);
         http_inout('/inout-seguridad/leida', $visitor['token'], 'POST', ['transaccionId' => $in['transaccionId']]);
@@ -182,7 +184,7 @@ try {
     $batchIds = [];
     foreach ([$visitor, $third] as $index => $recipient) {
         $in = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Invitado', 'movimiento' => 'Ingreso', 'horario' => '10:00',
-            'motivoId' => '20a00000-0000-4000-8000-00000000000' . ($index + 1), 'empresaOtra' => 'Empresa ' . $index,
+            'motivoId' => $testMotivos[$index], 'empresaOtra' => 'Empresa ' . $index,
             'usuarioVisitaId' => $recipient['id'], 'personas' => [['nombre' => 'Persona ' . $index, 'apellido' => 'Lote', 'dni' => (string) (97800001 + $index)]]];
         check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $in)['status'] === 201, 'ingreso para egreso mixto ' . $index);
         $stmt = $pdo->prepare('SELECT Id FROM InOutSeguridad WHERE TransaccionId = ?'); $stmt->execute([$in['transaccionId']]); $batchIds[] = $stmt->fetchColumn();
@@ -196,7 +198,7 @@ try {
         check_inout(($notes[0]['empresa'] ?? '') === 'Empresa ' . $index && str_contains($notes[0]['body'], "\n- Persona " . $index . ' Lote'), 'empresa y persona corresponden al destinatario ' . $index);
     }
     $legacy = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Externo', 'movimiento' => 'Ingreso', 'horario' => '20:00',
-        'motivoId' => '20a00000-0000-4000-8000-000000000001', 'empresaOtra' => 'Empresa nocturna',
+        'motivoId' => $testMotivos[0], 'empresaOtra' => 'Empresa nocturna',
         'personas' => [['nombre' => 'Turno', 'apellido' => 'Nocturno', 'dni' => '97700001']]];
     http_inout('/inout-seguridad', $porter['token'], 'POST', $legacy);
     $pdo->prepare('UPDATE InOutSeguridad SET DateAdd = DATE_SUB(NOW(), INTERVAL 1 DAY) WHERE TransaccionId = ?')->execute([$legacy['transaccionId']]);
@@ -238,6 +240,14 @@ try {
     check_inout(http_inout('/novedades/' . $newsId, $third['token'])['status'] === 404, 'otro usuario no obtiene la novedad');
     $foreignRead = http_inout('/novedades/' . $newsId . '/leida', $third['token'], 'POST');
     check_inout($foreignRead['status'] === 404, 'otro usuario no confirma la novedad');
+    $webNews = http_inout('/inout-seguridad/notificaciones', null, 'GET', null, true, $visitor['id']);
+    check_inout(in_array($newsId, array_column($webNews['body']['novedades'], 'id')), 'puente web recibe novedades pendientes propias');
+    $webForeign = http_inout('/inout-seguridad/notificaciones', null, 'GET', null, true, $third['id']);
+    check_inout(!in_array($newsId, array_column($webForeign['body']['novedades'], 'id')), 'puente web no expone novedades ajenas');
+    http_inout('/inout-seguridad/leida', null, 'POST', ['transaccionId' => $newsId], true, $third['id']);
+    check_inout(http_inout('/novedades', $visitor['token'])['body']['noLeidas'] === 1, 'puente web ajeno no confirma lectura');
+    check_inout(http_inout('/inout-seguridad/leida', null, 'POST', ['transaccionId' => $newsId], true, $visitor['id'])['body']['ok'] === true, 'ventana web confirma novedad');
+    check_inout(http_inout('/novedades', $visitor['token'])['body']['noLeidas'] === 0, 'lectura web detiene alerta de novedad movil');
     check_inout(http_inout('/novedades/' . $newsId . '/leida', $visitor['token'], 'POST')['status'] === 200, 'confirmación explícita de lectura');
     check_inout(http_inout('/novedades/' . $newsId . '/leida', $visitor['token'], 'POST')['status'] === 200, 'reintento de lectura es idempotente');
     check_inout(http_inout('/novedades', $visitor['token'])['body']['noLeidas'] === 0, 'confirmar elimina novedad de alertas pendientes');

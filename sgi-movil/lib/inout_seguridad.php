@@ -205,13 +205,40 @@ function handle_inout_seguridad(PDO $pdo, array $config, string $path, string $m
         $stmt->execute([$uid]);
         $groups = [];
         foreach ($stmt->fetchAll() as $row) $groups[$row['TransaccionId']][] = $row;
-        json_response(['notificaciones' => array_values(array_map('inout_notification', $groups))], 200, $config);
+        $result = ['notificaciones' => array_values(array_map('inout_notification', $groups))];
+        // El puente web comparte la cola y la lectura personal de Novedades.
+        // Los clientes móviles conservan el contrato de visitas existente.
+        if (($auth['token_payload']['source'] ?? '') === 'web') {
+            $news = $pdo->prepare('SELECT n.Id, n.Titulo, n.Cuerpo, n.CreadoEn,
+                n.EnviadoPorUsuarioId, nu.LeidaEn, u.Nombre AS EnvNombre,
+                u.Apellido AS EnvApellido, u.Mail AS EnvMail
+                FROM MovilNovedadUsuario nu INNER JOIN MovilNovedad n ON n.Id = nu.NovedadId
+                LEFT JOIN Usuarios u ON u.Id = n.EnviadoPorUsuarioId
+                WHERE nu.UsuarioId = ? AND nu.LeidaEn IS NULL ORDER BY n.CreadoEn, n.Id LIMIT 100');
+            $news->execute([$uid]);
+            $result['novedades'] = array_map('novedades_map_item', $news->fetchAll());
+        }
+        json_response($result, 200, $config);
         return;
     }
     if ($path === '/inout-seguridad/leida' && $method === 'POST') {
         $body = json_decode(file_get_contents('php://input'), true) ?: [];
+        $id = (string) ($body['transaccionId'] ?? '');
+        if (($auth['token_payload']['source'] ?? '') === 'web') {
+            // El controlador web transporta un GUID. Ambos tipos tienen UUID
+            // independientes; nunca se confirma una novedad de otro destinatario.
+            $news = $pdo->prepare('SELECT 1 FROM MovilNovedadUsuario WHERE NovedadId = ? AND UsuarioId = ?');
+            $news->execute([$id, $uid]);
+            if ($news->fetchColumn()) {
+                json_response(['ok' => novedades_marcar_leida($pdo, $uid, $id)], 200, $config);
+                return;
+            }
+        }
         $pdo->prepare('UPDATE InOutSeguridad SET NotificacionLeidaEn = COALESCE(NotificacionLeidaEn, NOW()) WHERE TransaccionId = ? AND UsuarioVisitaId = ? AND Estado = 1')
             ->execute([(string) ($body['transaccionId'] ?? ''), $uid]);
+        $own = $pdo->prepare('SELECT 1 FROM InOutSeguridad WHERE TransaccionId = ? AND UsuarioVisitaId = ? AND Estado = 1 LIMIT 1');
+        $own->execute([$id, $uid]);
+        if ($own->fetchColumn()) novedades_cancelar_alerta($pdo, $uid, $id, 'visita');
         json_response(['ok' => true], 200, $config);
         return;
     }
