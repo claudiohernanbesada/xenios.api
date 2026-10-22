@@ -1241,6 +1241,33 @@ function notas_traslado_puede_ver(array $nota, array $roles, string $usuarioId, 
             && trim((string) ($nota['DocumentoFirmado'] ?? '')) === '');
 }
 
+/** Una nota cuenta una vez si el usuario tiene alguna tarea habilitada en su estado actual. */
+function notas_traslado_tiene_tarea_pendiente(array $row, array $context): bool
+{
+    $status = (int) $row['StatusNotaTrasladoId'];
+    if (in_array($status, [NT_STATUS_RECIBIDA, NT_STATUS_ANULADA, NT_STATUS_RECHAZADA], true)) return false;
+    $roles = $context['roles'] ?? [];
+    $admin = notas_traslado_is_admin($roles);
+    if ($status === NT_STATUS_PENDIENTE_APROBACION) {
+        return $admin || notas_traslado_has_role($roles, 'NOTA_TRASLADO_APROBACION');
+    }
+    if (notas_traslado_requiere_autorizacion($row) && !notas_traslado_tiene_autorizacion_valida($row)) return false;
+    $mapped = notas_traslado_map_row($row, $context);
+    if ($mapped['puedeChequearSeguridad'] || $mapped['puedeEntregar'] || $mapped['puedeRecibir']) return true;
+    $despacho = $admin || notas_traslado_has_role($roles, 'NOTA_TRASLADO_DESPACHO');
+    $deposito = strtolower((string) ($context['depositoId'] ?? ''));
+    $origen = $deposito !== '' && strtolower((string) ($row['UserAddDepositoId'] ?? '')) === $deposito;
+    $destino = $deposito !== '' && strtolower((string) ($row['DestinoId'] ?? '')) === $deposito;
+    if ($status === NT_STATUS_GENERADA) return $despacho && ($admin || $origen);
+    if ($status === NT_STATUS_RECEPCION_DESPACHO) {
+        return ($despacho && ($admin || $origen)) || notas_traslado_has_role($roles, 'NOTA_TRASLADO_TRANSPORTE');
+    }
+    if ($status === NT_STATUS_EN_TRANSITO && notas_traslado_es_interno($row)) return $despacho && ($admin || $destino);
+    // Despacho todavía debe incorporar el comprobante firmado del envío externo.
+    return $despacho && $status === NT_STATUS_ENTREGADO && !notas_traslado_es_interno($row)
+        && trim((string) ($row['DocumentoFirmado'] ?? '')) === '';
+}
+
 function handle_notas_traslado_list(PDO $pdo, array $config): void
 {
     $auth = notas_traslado_require_auth($pdo, $config);
@@ -1249,6 +1276,8 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
     $desde = trim((string) ($_GET['desde'] ?? ''));
     $hasta = trim((string) ($_GET['hasta'] ?? ''));
     $mostrarTodos = filter_var($_GET['mostrarTodos'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    $resumenPendientes = filter_var($_GET['resumenPendientes'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    if ($resumenPendientes) { $desde = ''; $hasta = ''; $mostrarTodos = false; }
     if ($desde !== '' || $hasta !== '') {
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $desde) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $hasta)) {
             json_response(['message' => 'Parámetros desde/hasta inválidos (YYYY-MM-DD)'], 400, $config);
@@ -1338,10 +1367,11 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
         $where[] = '(' . implode(' OR ', $visibility) . ')';
     }
 
-    $sql = notas_traslado_base_select() . ' WHERE ' . implode(' AND ', $where) . ' ORDER BY n.DateAdd DESC LIMIT 200';
+    if ($resumenPendientes) $where[] = 'n.StatusNotaTrasladoId IN (1,2,3,4,5,8)';
+    $sql = notas_traslado_base_select() . ' WHERE ' . implode(' AND ', $where)
+        . ($resumenPendientes ? '' : ' ORDER BY n.DateAdd DESC LIMIT 200');
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
     $context = [
         'roles' => $roles,
@@ -1349,6 +1379,15 @@ function handle_notas_traslado_list(PDO $pdo, array $config): void
         'usuarioMail' => $usuarioMail,
         'depositoId' => $depositoId,
     ];
+    if ($resumenPendientes) {
+        $pendientes = 0;
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            if (notas_traslado_tiene_tarea_pendiente($row, $context)) $pendientes++;
+        }
+        json_response(['pendientes' => $pendientes], 200, $config);
+        return;
+    }
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     json_response(['notas' => array_map(static fn ($row) => notas_traslado_map_row($row, $context), $rows)], 200, $config);
 }
 

@@ -9,6 +9,23 @@ function check_push_visita(bool $ok, string $name): void {
     $checks++; echo 'OK ' . $name . PHP_EOL;
 }
 // Pruebas de contenido sin red, sin credenciales y sin enviar alertas a personas.
+$rows = [['TransaccionId' => 'prueba', 'Movimiento' => 'Ingreso', 'EmpresaNombre' => 'Prueba',
+    'Nombre' => 'Ana', 'Apellido' => 'Prueba', 'DateAdd' => '2026-10-22 16:59:23', 'Horario' => '12:26:00', 'Nota' => "Avisar a recepción.\nTrae documentación."]];
+$formatted = inout_notification($rows);
+check_push_visita($formatted['title'] === 'Ingreso de Visita' && $formatted['movimiento'] === 'Ingreso', 'titulo de ingreso de visita');
+$rows[0]['TipoPersona'] = 'Externo';
+check_push_visita(inout_notification($rows)['title'] === 'Ingreso de Personal Externo', 'titulo distingue ingreso externo');
+$rows[0]['TipoPersona'] = 'Invitado';
+check_push_visita($formatted['fechaHora'] === '22/10/2026 12:26 hs.', 'fecha del registro con hora de movimiento en formato 24 horas');
+check_push_visita(str_starts_with($formatted['body'], "Fecha y Hora: 22/10/2026 12:26 hs.\nEmpresa: Prueba")
+    && str_contains($formatted['body'], "\n✓ Ana Prueba"), 'fecha antes de empresa y visitantes con check');
+check_push_visita($formatted['nota'] === $rows[0]['Nota'] && str_ends_with($formatted['body'], $rows[0]['Nota']), 'nota completa conserva saltos de línea');
+$rows[0]['Nota'] = null; $rows[0]['Horario'] = '00:05:00'; $rows[0]['Movimiento'] = 'Egreso';
+$formatted = inout_notification($rows);
+check_push_visita($formatted['title'] === 'Salida de Visita' && $formatted['movimiento'] === 'Egreso', 'salida de visita conserva sentido del movimiento');
+$rows[0]['TipoPersona'] = 'Externo';
+check_push_visita(inout_notification($rows)['title'] === 'Salida de Personal Externo', 'titulo distingue salida externa');
+check_push_visita($formatted['nota'] === '' && !str_contains($formatted['body'], 'Nota:') && $formatted['fechaHora'] === '22/10/2026 00:05 hs.', 'sin nota devuelve vacío y medianoche conserva formato 24 horas');
 $note = ['transaccionId' => inout_uuid(), 'title' => 'Ingreso de Invitado', 'body' => "Empresa: Prueba\n\nEsta ingresando a la empresa:\n- Ana Prueba"];
 $messages = inout_build_push_messages([
     ['token' => str_repeat('a', 32), 'plataforma' => 'android'],

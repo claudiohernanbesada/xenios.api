@@ -17,12 +17,7 @@ $pdo = db_connect($config);
 if ((int) $pdo->query("SELECT GET_LOCK('sgi_inout_push', 0)")->fetchColumn() !== 1) exit;
 try {
     $cutoff = $desde->format('Y-m-d H:i:s');
-    $visits = $pdo->prepare('SELECT DISTINCT TransaccionId, UsuarioVisitaId FROM InOutSeguridad
-        WHERE Estado = 1 AND UsuarioVisitaId IS NOT NULL AND NotificacionLeidaEn IS NULL
-        AND DateAdd >= ? AND DateAdd <= DATE_SUB(NOW(), INTERVAL 1 MINUTE)
-        AND (NotificacionEnviadaEn IS NULL OR NotificacionEnviadaEn <= DATE_SUB(NOW(), INTERVAL 1 MINUTE))');
-    $visits->execute([$cutoff]);
-    $visitRows = $visits->fetchAll();
+    $visitRows = inout_destinatarios_pendientes($pdo, $cutoff);
     $news = $pdo->prepare('SELECT n.Id, n.Titulo, n.Cuerpo, nu.UsuarioId FROM MovilNovedad n
         INNER JOIN MovilNovedadUsuario nu ON nu.NovedadId = n.Id
         INNER JOIN Usuarios u ON u.Id = nu.UsuarioId AND u.Estado = 1
