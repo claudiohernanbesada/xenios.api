@@ -176,6 +176,41 @@ try {
         $s = $pdo->prepare('SELECT Nombre FROM InOutSeguridad WHERE TransaccionId = ?'); $s->execute([$tid]);
         check_inout($r['status'] === 201 && $s->fetchColumn() === $employee['Nombre'], 'RAEI usa identidad del servidor');
     }
+    // Personal RAEI: identidad individual y guardado atómico del lote completo.
+    $employees = $pdo->query('SELECT MIN(Id) AS Id, Legajo, MIN(Dni) AS Dni FROM Personal WHERE Estado = 1 AND Legajo BETWEEN 1 AND 9999 GROUP BY Legajo HAVING COUNT(*) = 1 ORDER BY Legajo')->fetchAll();
+    $batchEmployees = []; $batchDnis = [];
+    foreach ($employees as $e) {
+        if (isset($batchDnis[$e['Dni']])) continue;
+        $batchEmployees[] = $e; $batchDnis[$e['Dni']] = true;
+        if (count($batchEmployees) === 2) break;
+    }
+    check_inout(count($batchEmployees) === 2, 'hay dos empleados activos para probar carga multiple');
+    $legajos = array_map('intval', array_column($batchEmployees, 'Legajo'));
+    $batch = ['tipoPersona' => 'RAEI', 'horario' => hora_inout_prueba('08:00'), 'motivoId' => $testMotivos[0], 'nota' => 'Prueba lote RAEI', 'legajos' => $legajos];
+    foreach (['Ingreso', 'Egreso'] as $movement) {
+        $batch['movimiento'] = $movement; $batch['transaccionId'] = inout_uuid();
+        $r = http_inout('/inout-seguridad', $porter['token'], 'POST', $batch);
+        check_inout($r['status'] === 201 && $r['body']['cantidad'] === 2, 'RAEI multiple ' . $movement);
+        $s = $pdo->prepare('SELECT PersonalId, Legajo, Dni, Movimiento, Horario, MotivoId, Nota FROM InOutSeguridad WHERE TransaccionId = ? ORDER BY Legajo');
+        $s->execute([$batch['transaccionId']]); $stored = $s->fetchAll();
+        check_inout(count($stored) === 2, 'dos filas individuales ' . $movement);
+        foreach ($stored as $i => $row) {
+            check_inout($row['PersonalId'] === $batchEmployees[$i]['Id'] && (int) $row['Legajo'] === $legajos[$i] && $row['Dni'] === $batchEmployees[$i]['Dni']
+                && $row['Movimiento'] === $movement && $row['Horario'] === $batch['horario'] . ':00' && $row['MotivoId'] === $batch['motivoId'] && $row['Nota'] === $batch['nota'], 'identidad y datos individuales RAEI ' . $movement . ' ' . $i);
+        }
+        $r = http_inout('/inout-seguridad', $porter['token'], 'POST', $batch);
+        $s->execute([$batch['transaccionId']]);
+        check_inout($r['status'] === 200 && $r['body']['cantidad'] === 2 && count($s->fetchAll()) === 2, 'reintento sin duplicados RAEI ' . $movement);
+    }
+    $unavailable = 9999;
+    while (in_array($unavailable, array_map('intval', array_column($employees, 'Legajo')), true)) $unavailable--;
+    foreach ([[], null, '123', [$legajos[0], $legajos[0]], [$legajos[0], str_pad((string) $legajos[0], 4, '0', STR_PAD_LEFT)], [$legajos[0], $unavailable], [$legajos[0], 0], [$legajos[0], true], [$legajos[0], '1e2'], array_fill(0, 51, $legajos[0])] as $invalid) {
+        $bad = $batch; $bad['transaccionId'] = inout_uuid(); $bad['legajos'] = $invalid;
+        $r = http_inout('/inout-seguridad', $porter['token'], 'POST', $bad);
+        check_inout($r['status'] === 422, 'rechaza lote RAEI invalido ' . json_encode($invalid));
+        $s->execute([$bad['transaccionId']]);
+        check_inout(count($s->fetchAll()) === 0, 'lote RAEI invalido no guarda filas parciales');
+    }
     // Egresos desde ingresos: un lote puede mezclar empresas, motivos y visitas.
     $entryIds = [];
     foreach (['Externo', 'Invitado'] as $kind) {

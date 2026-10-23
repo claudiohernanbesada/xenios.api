@@ -426,14 +426,23 @@ function handle_inout_seguridad(PDO $pdo, array $config, string $path, string $m
         $stmt->execute($destinatarios);
         if (count($stmt->fetchAll()) !== count($destinatarios)) inout_error('Uno de los usuarios visitados no está disponible.', $config);
     }
-    $personalId = null; $legajo = null; $empresaId = null; $empresa = 'RAEI';
+    $empresaId = null; $empresa = 'RAEI';
     if ($tipo === 'RAEI') {
-        $stmt = $pdo->prepare('SELECT Id, Legajo, Nombre AS nombre, Apellido AS apellido, Dni AS dni FROM Personal WHERE Legajo = ? AND Estado = 1');
-        $stmt->execute([(int) ($b['legajo'] ?? 0)]);
+        // Conservar compatibilidad con clientes que envían un único legajo.
+        $legajos = array_key_exists('legajos', $b) ? $b['legajos'] : [$b['legajo'] ?? null];
+        if (!is_array($legajos) || !array_is_list($legajos) || count($legajos) < 1 || count($legajos) > 50) inout_error('Agregá entre 1 y 50 legajos.', $config);
+        foreach ($legajos as &$numero) {
+            if ((!is_int($numero) && !is_string($numero)) || !preg_match('/^\d{1,4}$/D', (string) $numero) || (int) $numero < 1) inout_error('Ingresá legajos válidos de hasta 4 dígitos.', $config);
+            $numero = (int) $numero;
+        }
+        unset($numero);
+        if (count(array_unique($legajos)) !== count($legajos)) inout_error('Hay legajos repetidos en la carga.', $config);
+        $stmt = $pdo->prepare('SELECT Id, Legajo, Nombre AS nombre, Apellido AS apellido, Dni AS dni FROM Personal WHERE Legajo IN (' . implode(',', array_fill(0, count($legajos), '?')) . ') AND Estado = 1');
+        $stmt->execute($legajos);
         $found = $stmt->fetchAll();
-        if (count($found) !== 1) inout_error('Legajo no disponible o ambiguo.', $config);
+        if (count($found) !== count($legajos) || count(array_unique(array_column($found, 'Legajo'))) !== count($legajos)) inout_error('Uno de los legajos no está disponible o es ambiguo.', $config);
+        if (count(array_unique(array_column($found, 'dni'))) !== count($found)) inout_error('Los empleados seleccionados tienen un DNI repetido. Revisá sus datos.', $config);
         $personas = $found;
-        $personalId = $found[0]['Id']; $legajo = $found[0]['Legajo'];
     } else {
         $empresaId = ($b['empresaId'] ?? null) ?: null;
         if ($empresaId) {
@@ -462,7 +471,7 @@ function handle_inout_seguridad(PDO $pdo, array $config, string $path, string $m
         $stmt = $pdo->prepare('INSERT INTO InOutSeguridad (Id, TransaccionId, TipoPersona, Movimiento, PersonalId, Legajo, Nombre, Apellido, Dni, EmpresaId, EmpresaNombre, Horario, MotivoId, UsuarioVisitaId, Nota, Sede, DateAdd, UserAdd, Estado) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 1)');
         foreach ($personas as $p) {
             $registroId = inout_uuid();
-            $stmt->execute([$registroId, $transaction, $tipo, $movimiento, $personalId, $legajo, $p['nombre'], $p['apellido'], $p['dni'], $empresaId, $empresa, $hora . ':00', $b['motivoId'], $usuarioVisita ?: null, $nota ?: null, $sede, $uid]);
+            $stmt->execute([$registroId, $transaction, $tipo, $movimiento, $tipo === 'RAEI' ? $p['Id'] : null, $tipo === 'RAEI' ? $p['Legajo'] : null, $p['nombre'], $p['apellido'], $p['dni'], $empresaId, $empresa, $hora . ':00', $b['motivoId'], $usuarioVisita ?: null, $nota ?: null, $sede, $uid]);
             inout_guardar_destinatarios($pdo, $registroId, $destinatarios);
         }
         $pdo->commit();
