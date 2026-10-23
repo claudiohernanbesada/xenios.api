@@ -9,6 +9,13 @@ function check_push_visita(bool $ok, string $name): void {
     $checks++; echo 'OK ' . $name . PHP_EOL;
 }
 // Pruebas de contenido sin red, sin credenciales y sin enviar alertas a personas.
+$clock = new DateTimeImmutable('2026-10-23T10:46:59Z');
+check_push_visita(!inout_horario_futuro('07:45', $clock), 'permite horario anterior');
+check_push_visita(!inout_horario_futuro('07:46', $clock), 'permite el minuto actual');
+check_push_visita(inout_horario_futuro('07:47', $clock), 'rechaza un minuto posterior');
+$midnight = new DateTimeImmutable('2026-10-23T03:00:00Z');
+check_push_visita(!inout_horario_futuro('00:00', $midnight) && inout_horario_futuro('00:01', $midnight), 'limite correcto a medianoche de Buenos Aires');
+check_push_visita(!inout_horario_futuro('23:59', new DateTimeImmutable('2026-10-24T02:59:00Z')), 'permite el ultimo minuto del dia');
 $rows = [['TransaccionId' => 'prueba', 'Movimiento' => 'Ingreso', 'EmpresaNombre' => 'Prueba',
     'Nombre' => 'Ana', 'Apellido' => 'Prueba', 'DateAdd' => '2026-10-22 16:59:23', 'Horario' => '12:26:00', 'Nota' => "Avisar a recepción.\nTrae documentación."]];
 $formatted = inout_notification($rows);

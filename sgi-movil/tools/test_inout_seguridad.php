@@ -8,6 +8,15 @@ $config = require dirname(__DIR__) . '/config.php';
 $pdo = db_connect($config);
 $testMotivos = $pdo->query('SELECT Id FROM InOutSeguridadMotivo WHERE Estado = 1 ORDER BY Id LIMIT 3')->fetchAll(PDO::FETCH_COLUMN);
 if (count($testMotivos) < 3) throw new RuntimeException('La prueba requiere tres motivos activos.');
+// Todas las horas de las fixtures quedan en el pasado, conservando su orden relativo.
+$testClock = new DateTimeImmutable('now', novedades_timezone());
+$testMinutes = max(0, (int) $testClock->format('H') * 60 + (int) $testClock->format('i') - 1);
+function hora_inout_prueba(string $hora): string {
+    global $testMinutes;
+    [$hours, $minutes] = array_map('intval', explode(':', $hora));
+    $scaled = intdiv(($hours * 60 + $minutes) * $testMinutes, 1440);
+    return sprintf('%02d:%02d', intdiv($scaled, 60), $scaled % 60);
+}
 $ids = []; $checks = 0;
 function check_inout(bool $condition, string $label): void {
     global $checks;
@@ -83,11 +92,25 @@ try {
         check_inout($r['status'] === 200 && is_array($r['body']['opciones']), 'catalogo ' . $resource);
     }
     $transaction = inout_uuid();
-    $body = ['transaccionId' => $transaction, 'tipoPersona' => 'Invitado', 'movimiento' => 'Ingreso', 'horario' => '09:30',
+    $body = ['transaccionId' => $transaction, 'tipoPersona' => 'Invitado', 'movimiento' => 'Ingreso', 'horario' => hora_inout_prueba('09:30'),
         'motivoId' => $testMotivos[2], 'empresaOtra' => 'Empresa de prueba', 'nota' => "Trae documentación.\nAvisar a recepción.", 'personas' => [
             ['nombre' => 'Ana', 'apellido' => 'Prueba', 'dni' => '99000001'], ['nombre' => 'Luis', 'apellido' => 'Prueba', 'dni' => '99000002']]];
     check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $body)['status'] === 422, 'invitados requieren destinatario');
     $body['usuarioVisitaId'] = $visitor['id'];
+    $clock = new DateTimeImmutable('now', novedades_timezone());
+    if ($clock->format('H:i') !== '23:59') {
+        $futureTime = $clock->modify('+1 minute')->format('H:i');
+        foreach (['RAEI', 'Externo', 'Invitado'] as $personType) foreach (['Ingreso', 'Egreso'] as $movement) {
+            $future = $body; $future['transaccionId'] = inout_uuid(); $future['horario'] = $futureTime;
+            $future['tipoPersona'] = $personType; $future['movimiento'] = $movement;
+            if ($movement === 'Egreso' && $personType !== 'RAEI') $future['ingresosIds'] = [inout_uuid()];
+            $response = http_inout('/inout-seguridad', $porter['token'], 'POST', $future);
+            check_inout($response['status'] === 422 && str_contains($response['body']['message'] ?? '', 'posterior a la hora actual'),
+                'rechaza horario futuro ' . $personType . ' ' . $movement);
+            $stored = $pdo->prepare('SELECT COUNT(*) FROM InOutSeguridad WHERE TransaccionId = ?'); $stored->execute([$future['transaccionId']]);
+            check_inout((int) $stored->fetchColumn() === 0, 'horario futuro no guarda movimientos ' . $personType . ' ' . $movement);
+        }
+    }
     $bad = $body; $bad['horario'] = '24:00';
     check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $bad)['status'] === 422, 'valida HH:mm');
     $bad = $body; $bad['personas'][] = $bad['personas'][0];
@@ -116,7 +139,7 @@ try {
     check_inout(($notification['title'] ?? '') === 'Ingreso de Visita' && str_contains($notification['body'] ?? '', 'Ana Prueba') && str_contains($notification['body'] ?? '', 'Luis Prueba'), 'notificacion con listado completo');
     check_inout(($notification['empresa'] ?? '') === 'Empresa de prueba'
         && str_contains($notification['body'], "Empresa: Empresa de prueba\n\nEsta ingresando a la empresa:\n✓ Ana Prueba\n✓ Luis Prueba"), 'notificación con empresa y todas las personas en renglones separados');
-    check_inout(($notification['fechaHora'] ?? '') === date('d/m/Y', strtotime($rows[0]['DateAdd'])) . ' 09:30 hs.'
+    check_inout(($notification['fechaHora'] ?? '') === date('d/m/Y', strtotime($rows[0]['DateAdd'])) . ' ' . $body['horario'] . ' hs.'
         && ($notification['nota'] ?? null) === $body['nota'], 'API entrega fecha, hora elegida y nota guardada');
     $web = http_inout('/inout-seguridad/notificaciones', null, 'GET', null, true, $visitor['id']);
     check_inout($web['status'] === 200 && $web['body']['notificaciones'][0]['transaccionId'] === $transaction, 'destinatario web recibe visita sin rol de seguridad');
@@ -149,14 +172,14 @@ try {
         $r = http_inout('/inout-seguridad/personal?legajo=' . $employee['Legajo'], $porter['token']);
         check_inout($r['status'] === 200 && $r['body']['personal']['nombre'] === $employee['Nombre'], 'obtiene Personal por legajo');
         $tid = inout_uuid();
-        $r = http_inout('/inout-seguridad', $porter['token'], 'POST', ['transaccionId' => $tid, 'tipoPersona' => 'RAEI', 'movimiento' => 'Ingreso', 'legajo' => $employee['Legajo'], 'horario' => '08:00', 'motivoId' => $testMotivos[0], 'nombre' => 'Manipulado']);
+        $r = http_inout('/inout-seguridad', $porter['token'], 'POST', ['transaccionId' => $tid, 'tipoPersona' => 'RAEI', 'movimiento' => 'Ingreso', 'legajo' => $employee['Legajo'], 'horario' => hora_inout_prueba('08:00'), 'motivoId' => $testMotivos[0], 'nombre' => 'Manipulado']);
         $s = $pdo->prepare('SELECT Nombre FROM InOutSeguridad WHERE TransaccionId = ?'); $s->execute([$tid]);
         check_inout($r['status'] === 201 && $s->fetchColumn() === $employee['Nombre'], 'RAEI usa identidad del servidor');
     }
     // Egresos desde ingresos: un lote puede mezclar empresas, motivos y visitas.
     $entryIds = [];
     foreach (['Externo', 'Invitado'] as $kind) {
-        $in = ['transaccionId' => inout_uuid(), 'tipoPersona' => $kind, 'movimiento' => 'Ingreso', 'horario' => '09:30',
+        $in = ['transaccionId' => inout_uuid(), 'tipoPersona' => $kind, 'movimiento' => 'Ingreso', 'horario' => hora_inout_prueba('09:30'),
             'motivoId' => $testMotivos[2], 'empresaOtra' => 'Empresa selección ' . $kind,
             'usuarioVisitaId' => $visitor['id'], 'personas' => [['nombre' => 'José', 'apellido' => 'Selección', 'dni' => $kind === 'Externo' ? '98000001' : '98000002']]];
         check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $in)['status'] === 201, 'ingreso seleccionable ' . $kind);
@@ -167,7 +190,7 @@ try {
         $p = http_inout($url, $porter['token']);
         check_inout($p['status'] === 200 && in_array($original['Id'], array_column($p['body']['personas'], 'id')), 'selector incluye ingreso presente ' . $kind);
         check_inout(!in_array($original['Id'], array_column(http_inout($url, $sfUser['token'])['body']['personas'], 'id')), 'selector aísla sede ' . $kind);
-        $out = ['transaccionId' => inout_uuid(), 'tipoPersona' => $kind, 'movimiento' => 'Egreso', 'horario' => '18:45', 'ingresosIds' => [$original['Id']],
+        $out = ['transaccionId' => inout_uuid(), 'tipoPersona' => $kind, 'movimiento' => 'Egreso', 'horario' => hora_inout_prueba('18:45'), 'ingresosIds' => [$original['Id']],
             'nombre' => 'Alterado', 'empresaOtra' => 'Alterada', 'motivoId' => inout_uuid(), 'usuarioVisitaId' => $third['id']];
         $wrong = $out; $wrong['tipoPersona'] = $kind === 'Externo' ? 'Invitado' : 'Externo';
         check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $wrong)['status'] === 409, 'rechaza ingreso de otro tipo ' . $kind);
@@ -187,7 +210,7 @@ try {
         $notification = http_inout('/inout-seguridad/notificaciones', $visitor['token'])['body']['notificaciones'];
         check_inout(count(array_filter($notification, static fn($n) => $n['transaccionId'] === $out['transaccionId'] && $n['title'] === ($kind === 'Externo' ? 'Salida de Personal Externo' : 'Salida de Visita'))) === 1, 'notifica al visitado original ' . $kind);
         // Un reingreso del mismo DNI debe estar disponible otra vez.
-        $in['transaccionId'] = inout_uuid(); $in['horario'] = '19:00';
+        $in['transaccionId'] = inout_uuid(); $in['horario'] = hora_inout_prueba('19:00');
         check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $in)['status'] === 201, 'reingreso ' . $kind);
         $stmt->execute([$in['transaccionId']]); $reentry = $stmt->fetch();
         check_inout(in_array($reentry['Id'], array_column(http_inout($url, $porter['token'])['body']['personas'], 'id')), 'selector ofrece reingreso ' . $kind);
@@ -196,13 +219,13 @@ try {
     check_inout(http_inout('/inout-seguridad/presentes?tipoPersona=Externo', $noRole['token'])['status'] === 403, 'presentes requiere permiso de seguridad');
     $batchIds = [];
     foreach ([$visitor, $third] as $index => $recipient) {
-        $in = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Invitado', 'movimiento' => 'Ingreso', 'horario' => '10:00',
+        $in = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Invitado', 'movimiento' => 'Ingreso', 'horario' => hora_inout_prueba('10:00'),
             'motivoId' => $testMotivos[$index], 'empresaOtra' => 'Empresa ' . $index,
             'usuarioVisitaId' => $recipient['id'], 'personas' => [['nombre' => 'Persona ' . $index, 'apellido' => 'Lote', 'dni' => (string) (97800001 + $index)]]];
         check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $in)['status'] === 201, 'ingreso para egreso mixto ' . $index);
         $stmt = $pdo->prepare('SELECT Id FROM InOutSeguridad WHERE TransaccionId = ?'); $stmt->execute([$in['transaccionId']]); $batchIds[] = $stmt->fetchColumn();
     }
-    $out = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Invitado', 'movimiento' => 'Egreso', 'horario' => '16:30', 'ingresosIds' => $batchIds];
+    $out = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Invitado', 'movimiento' => 'Egreso', 'horario' => hora_inout_prueba('16:30'), 'ingresosIds' => $batchIds];
     check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $out)['status'] === 201, 'egreso múltiple con empresas motivos destinatarios distintos');
     foreach ([$visitor, $third] as $index => $recipient) {
         $notes = http_inout('/inout-seguridad/notificaciones', $recipient['token'])['body']['notificaciones'];
@@ -211,7 +234,7 @@ try {
         check_inout(($notes[0]['empresa'] ?? '') === 'Empresa ' . $index && str_contains($notes[0]['body'], "\n✓ Persona " . $index . ' Lote'), 'empresa y persona corresponden al destinatario ' . $index);
         check_inout(($notes[0]['nota'] ?? null) === '', 'registro sin nota entrega texto vacío ' . $index);
     }
-    $legacy = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Externo', 'movimiento' => 'Ingreso', 'horario' => '20:00',
+    $legacy = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Externo', 'movimiento' => 'Ingreso', 'horario' => hora_inout_prueba('20:00'),
         'motivoId' => $testMotivos[0], 'empresaOtra' => 'Empresa nocturna',
         'personas' => [['nombre' => 'Turno', 'apellido' => 'Nocturno', 'dni' => '97700001']]];
     http_inout('/inout-seguridad', $porter['token'], 'POST', $legacy);
@@ -219,7 +242,7 @@ try {
     $stmt->execute([$legacy['transaccionId']]); $nightId = $stmt->fetchColumn();
     $url = '/inout-seguridad/presentes?tipoPersona=Externo&q=97700001';
     check_inout(in_array($nightId, array_column(http_inout($url, $porter['token'])['body']['personas'], 'id')), 'presentes incluye ingreso de día anterior');
-    $legacy['transaccionId'] = inout_uuid(); $legacy['movimiento'] = 'Egreso'; $legacy['horario'] = '06:00';
+    $legacy['transaccionId'] = inout_uuid(); $legacy['movimiento'] = 'Egreso'; $legacy['horario'] = hora_inout_prueba('06:00');
     http_inout('/inout-seguridad', $porter['token'], 'POST', $legacy);
     check_inout(!in_array($nightId, array_column(http_inout($url, $porter['token'])['body']['personas'], 'id')), 'egreso de app anterior cierra presencia nocturna');
     // El filtro usa la fecha de carga, también para el total y las páginas.
@@ -244,7 +267,7 @@ try {
         check_inout(http_inout('/inout-seguridad?fecha=' . $invalidDate, $porter['token'])['status'] === 422, 'rechaza fecha inválida ' . $invalidDate);
     }
     // Un registro físico por persona, con lecturas y destinatarios independientes.
-    $multi = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Invitado', 'movimiento' => 'Ingreso', 'horario' => '10:30',
+    $multi = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Invitado', 'movimiento' => 'Ingreso', 'horario' => hora_inout_prueba('10:30'),
         'motivoId' => $testMotivos[0], 'empresaOtra' => 'Empresa múltiples destinatarios',
         'usuariosVisitaIds' => [$visitor['id'], $third['id'], strtoupper($visitor['id'])],
         'personas' => [['nombre' => 'Doble', 'apellido' => 'Uno', 'dni' => '97500001'], ['nombre' => 'Doble', 'apellido' => 'Dos', 'dni' => '97500002']]];
@@ -282,7 +305,7 @@ try {
     check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $single)['status'] === 201, 'ingreso adicional con otro conjunto de destinatarios');
     $entryQuery = $pdo->prepare('SELECT Id FROM InOutSeguridad WHERE TransaccionId IN (?, ?)');
     $entryQuery->execute([$multi['transaccionId'], $single['transaccionId']]);
-    $multiOut = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Invitado', 'movimiento' => 'Egreso', 'horario' => '17:30',
+    $multiOut = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Invitado', 'movimiento' => 'Egreso', 'horario' => hora_inout_prueba('17:30'),
         'ingresosIds' => $entryQuery->fetchAll(PDO::FETCH_COLUMN), 'usuariosVisitaIds' => [$noRole['id']]];
     check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $multiOut)['status'] === 201, 'egreso mixto hereda todos los destinatarios de cada ingreso');
     check_inout(count(inout_notificaciones_usuario($pdo, $visitor['id'], $multiOut['transaccionId'])) === 2, 'egreso de primer destinatario incluye solo sus dos personas');
@@ -315,7 +338,7 @@ try {
     // Historial mensual: integrar visitas sin reenviar ni duplicar alertas.
     check_inout(http_inout('/novedades?historial=true&anio=2026&mes=13', $visitor['token'])['status'] === 422, 'historial rechaza mes invalido');
     check_inout(http_inout('/novedades?historial=true&anio=abc&mes=2', $visitor['token'])['status'] === 422, 'historial rechaza año invalido');
-    $historical = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Invitado', 'movimiento' => 'Ingreso', 'horario' => '23:55',
+    $historical = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Invitado', 'movimiento' => 'Ingreso', 'horario' => hora_inout_prueba('23:55'),
         'motivoId' => $testMotivos[0], 'empresaOtra' => 'Empresa historial', 'nota' => 'Documentación histórica',
         'usuarioVisitaId' => $visitor['id'], 'personas' => [['nombre' => 'Historia', 'apellido' => 'Prueba', 'dni' => '96990001']]];
     check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $historical)['status'] === 201, 'crea visita para historial mensual');
@@ -352,6 +375,13 @@ try {
     }
     $completeHistory = http_inout($historyPath, $visitor['token']);
     check_inout(count($completeHistory['body']['novedades']) === 107, 'historial mensual completo supera limite anterior de 100 sin truncar busqueda');
+    $sameMinute = ['transaccionId' => inout_uuid(), 'tipoPersona' => 'Externo', 'movimiento' => 'Ingreso',
+        'horario' => (new DateTimeImmutable('now', novedades_timezone()))->format('H:i'),
+        'motivoId' => $testMotivos[0], 'empresaOtra' => 'Prueba horario actual',
+        'personas' => [['nombre' => 'Horario', 'apellido' => 'Actual', 'dni' => '96990002']]];
+    check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $sameMinute)['status'] === 201, 'acepta el minuto actual en API');
+    $retry = $sameMinute; $retry['horario'] = '23:59';
+    check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $retry)['status'] === 200, 'validacion horaria conserva reintentos de cargas ya guardadas');
     // Registrar otro teléfono no debe dejar al primero sin push.
     $devices = [bin2hex(random_bytes(32)), bin2hex(random_bytes(32))];
     foreach ($devices as $device) {

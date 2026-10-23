@@ -21,6 +21,12 @@ function inout_text_cut(string $value, int $maxBytes): string
     return $cut;
 }
 
+function inout_horario_futuro(string $horario, ?DateTimeImmutable $ahora = null): bool
+{
+    $ahora = ($ahora ?? new DateTimeImmutable('now'))->setTimezone(novedades_timezone());
+    return $horario > $ahora->format('H:i');
+}
+
 function inout_uuid(): string
 {
     $bytes = random_bytes(16);
@@ -393,6 +399,7 @@ function handle_inout_seguridad(PDO $pdo, array $config, string $path, string $m
         json_response(['ok' => true, 'cantidad' => (int) $existing['Cantidad'], 'transaccionId' => $transaction, 'reintento' => true], 200, $config);
         return;
     }
+    if (inout_horario_futuro($hora)) inout_error('El horario no puede ser posterior a la hora actual.', $config);
     if (array_key_exists('ingresosIds', $b)) {
         if ($movimiento !== 'Egreso' || !in_array($tipo, ['Externo', 'Invitado'], true)) inout_error('La selección de presentes corresponde a egresos de externos o invitados.', $config);
         inout_egreso_desde_ingresos($pdo, $config, $b, $sede, $uid);
