@@ -371,7 +371,7 @@ function handle_inout_seguridad(PDO $pdo, array $config, string $path, string $m
         $count = $pdo->prepare('SELECT COUNT(*) FROM InOutSeguridad WHERE Sede = ? AND Estado = 1 AND DateAdd >= ? AND DateAdd < ?');
         $count->execute($params);
         $offset = ($page - 1) * 20;
-        $stmt = $pdo->prepare("SELECT Id AS id, Movimiento AS movimiento, DATE_FORMAT(Horario, '%H:%i') AS horario, Nombre AS nombre, Apellido AS apellido, EmpresaNombre AS empresa, DATE_FORMAT(DateAdd, '%d/%m/%Y') AS fecha FROM InOutSeguridad WHERE Sede = ? AND Estado = 1 AND DateAdd >= ? AND DateAdd < ? ORDER BY DateAdd DESC, Id DESC LIMIT 20 OFFSET $offset");
+        $stmt = $pdo->prepare("SELECT Id AS id, Movimiento AS movimiento, DATE_FORMAT(Horario, '%H:%i') AS horario, Nombre AS nombre, Apellido AS apellido, EmpresaNombre AS empresa, DATE_FORMAT(DateAdd, '%d/%m/%Y') AS fecha FROM InOutSeguridad WHERE Sede = ? AND Estado = 1 AND DateAdd >= ? AND DateAdd < ? ORDER BY Horario DESC, DateAdd DESC, Id DESC LIMIT 20 OFFSET $offset");
         $stmt->execute($params);
         json_response(['registros' => $stmt->fetchAll(), 'total' => (int) $count->fetchColumn(), 'pagina' => $page, 'sede' => $sede, 'fecha' => $fecha], 200, $config);
         return;
