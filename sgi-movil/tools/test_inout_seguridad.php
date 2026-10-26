@@ -433,6 +433,55 @@ try {
     check_inout((int) $deviceQuery->fetchColumn() === 1, 'cambiar cuenta solo desvincula ese teléfono');
     $deviceQuery->execute([$third['id']]);
     check_inout((int) $deviceQuery->fetchColumn() === 1, 'teléfono compartido pertenece a la última cuenta');
+    // Patente opcional individual: persistencia, edición al salir y compatibilidad.
+    $plateRows = $pdo->prepare('SELECT Id, Dni, Legajo, Patente FROM InOutSeguridad WHERE TransaccionId = ? ORDER BY Dni');
+    foreach (['Ingreso', 'Egreso'] as $movement) {
+        $plateBatch = $batch;
+        $plateBatch['movimiento'] = $movement; $plateBatch['transaccionId'] = inout_uuid();
+        $plateBatch['patentesLegajos'] = [$legajos[0] => ' ab123cd ', $legajos[1] => ''];
+        check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $plateBatch)['status'] === 201, 'RAEI con patente individual ' . $movement);
+        $plateRows->execute([$plateBatch['transaccionId']]);
+        $platesByLegajo = array_column($plateRows->fetchAll(), 'Patente', 'Legajo');
+        check_inout($platesByLegajo[$legajos[0]] === 'AB123CD' && $platesByLegajo[$legajos[1]] === null, 'RAEI normaliza patente y permite peaton ' . $movement);
+    }
+    foreach (['Externo', 'Invitado'] as $kindIndex => $kind) {
+        $plateEntry = ['transaccionId' => inout_uuid(), 'tipoPersona' => $kind, 'movimiento' => 'Ingreso',
+            'horario' => hora_inout_prueba('08:00'), 'motivoId' => $testMotivos[0], 'empresaOtra' => 'Prueba patentes',
+            'usuarioVisitaId' => $visitor['id'], 'personas' => []];
+        foreach ([' abc-123 ', 'AB 123 CD', 'AA000BB'] as $i => $plate) {
+            $plateEntry['personas'][] = ['nombre' => 'Patente', 'apellido' => 'Prueba', 'dni' => (string) (96888000 + $kindIndex * 10 + $i), 'patente' => $plate];
+        }
+        check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $plateEntry)['status'] === 201, 'ingreso con patentes ' . $kind);
+        $plateRows->execute([$plateEntry['transaccionId']]); $entries = $plateRows->fetchAll();
+        check_inout(array_column($entries, 'Patente') === ['ABC-123', 'AB 123 CD', 'AA000BB'], 'guarda patentes independientes ' . $kind);
+        $present = http_inout('/inout-seguridad/presentes?tipoPersona=' . $kind . '&q=96888', $porter['token']);
+        $presentPlates = array_column($present['body']['personas'], 'patente', 'id');
+        check_inout(($presentPlates[$entries[0]['Id']] ?? null) === 'ABC-123', 'selector devuelve patente del ingreso ' . $kind);
+        $plateExit = ['transaccionId' => inout_uuid(), 'tipoPersona' => $kind, 'movimiento' => 'Egreso',
+            'horario' => hora_inout_prueba('09:00'), 'ingresosIds' => array_column($entries, 'Id'),
+            'patentesIngresos' => [$entries[0]['Id'] => ' zz999zz ', $entries[1]['Id'] => '']];
+        check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $plateExit)['status'] === 201, 'egreso con patentes editadas ' . $kind);
+        $plateRows->execute([$plateExit['transaccionId']]);
+        check_inout(array_column($plateRows->fetchAll(), 'Patente') === ['ZZ999ZZ', null, 'AA000BB'], 'egreso edita, borra y hereda patente omitida ' . $kind);
+        $plateExit['patentesIngresos'][$entries[0]['Id']] = 'OTRA123';
+        check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $plateExit)['status'] === 200, 'reintento con patente no duplica ' . $kind);
+        $plateRows->execute([$plateExit['transaccionId']]);
+        check_inout(array_column($plateRows->fetchAll(), 'Patente') === ['ZZ999ZZ', null, 'AA000BB'], 'reintento conserva patentes guardadas ' . $kind);
+        $pdo->prepare('UPDATE InOutSeguridad SET DateAdd = ? WHERE TransaccionId = ?')->execute(['2000-04-05 10:00:00', $plateExit['transaccionId']]);
+        $plateList = http_inout('/inout-seguridad?fecha=2000-04-05', $porter['token']);
+        $listedPlates = array_column($plateList['body']['registros'], 'patente', 'id');
+        $plateRows->execute([$plateExit['transaccionId']]); $exits = $plateRows->fetchAll();
+        check_inout(($listedPlates[$exits[0]['Id']] ?? null) === 'ZZ999ZZ', 'listado devuelve patente ' . $kind);
+    }
+    foreach ([str_repeat('A', 16), 'AB<script>', ['AB123CD'], 123] as $invalidPlate) {
+        $badPlate = $plateEntry; $badPlate['transaccionId'] = inout_uuid();
+        $badPlate['personas'][1]['patente'] = $invalidPlate;
+        check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $badPlate)['status'] === 422, 'rechaza patente invalida ' . json_encode($invalidPlate));
+        $plateRows->execute([$badPlate['transaccionId']]);
+        check_inout($plateRows->fetchAll() === [], 'patente invalida no guarda lote parcial');
+    }
+    $badPlate = $plateBatch; $badPlate['transaccionId'] = inout_uuid(); $badPlate['patentesLegajos'] = [999999 => 'AB123CD'];
+    check_inout(http_inout('/inout-seguridad', $porter['token'], 'POST', $badPlate)['status'] === 422, 'rechaza patente para legajo no seleccionado');
     echo "TOTAL: $checks verificaciones correctas." . PHP_EOL;
 } finally {
         foreach ($ids as $id) {

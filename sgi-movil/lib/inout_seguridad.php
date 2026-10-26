@@ -42,6 +42,28 @@ function inout_error(string $message, array $config, int $status = 422): never
     exit;
 }
 
+function inout_patente(mixed $value, array $config): ?string
+{
+    if ($value === null) return null;
+    if (!is_string($value)) inout_error('La patente debe ser un texto.', $config);
+    $value = strtoupper(trim($value));
+    if ($value === '') return null;
+    if (!preg_match('/^[A-Z0-9 -]{1,15}$/D', $value)) inout_error('La patente admite hasta 15 caracteres: letras, números, espacios y guiones.', $config);
+    return $value;
+}
+
+function inout_patentes(mixed $values, array $ids, array $config): array
+{
+    if (!is_array($values) || count($values) > 50) inout_error('Las patentes deben corresponder a las personas seleccionadas.', $config);
+    $result = [];
+    $keys = array_map('strval', $ids);
+    foreach ($values as $id => $value) {
+        if (!in_array((string) $id, $keys, true)) inout_error('La patente no corresponde a una persona seleccionada.', $config);
+        $result[$id] = inout_patente($value, $config);
+    }
+    return $result;
+}
+
 function inout_sede(PDO $pdo, array $user, array $config): string
 {
     $stmt = $pdo->prepare('SELECT Nombre FROM Depositos WHERE Id = ? AND Estado = 1');
@@ -226,6 +248,7 @@ function inout_egreso_desde_ingresos(PDO $pdo, array $config, array $b, string $
         if (!is_string($id) || !preg_match('/^[0-9a-f-]{36}$/i', $id)) inout_error('Ingreso seleccionado inválido.', $config);
     }
     if (count(array_unique($ids)) !== count($ids)) inout_error('Hay personas repetidas en la selección.', $config);
+    $patentes = inout_patentes($b['patentesIngresos'] ?? [], $ids, $config);
     sort($ids); // Mismo orden de bloqueo para cargas concurrentes con varias personas.
     $pdo->beginTransaction();
     try {
@@ -245,13 +268,14 @@ function inout_egreso_desde_ingresos(PDO $pdo, array $config, array $b, string $
             $pdo->rollBack();
             inout_error('Alguna persona ya se retiró o no pertenece a esta sede y tipo. Actualizá la selección.', $config, 409);
         }
-        $insert = $pdo->prepare("INSERT INTO InOutSeguridad (Id, TransaccionId, IngresoId, TipoPersona, Movimiento, Nombre, Apellido, Dni, EmpresaId, EmpresaNombre, Horario, MotivoId, UsuarioVisitaId, Nota, Sede, DateAdd, UserAdd, Estado)
-            VALUES (?, ?, ?, ?, 'Egreso', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 1)");
+        $insert = $pdo->prepare("INSERT INTO InOutSeguridad (Id, TransaccionId, IngresoId, TipoPersona, Movimiento, Nombre, Apellido, Dni, EmpresaId, EmpresaNombre, Horario, MotivoId, UsuarioVisitaId, Nota, Patente, Sede, DateAdd, UserAdd, Estado)
+            VALUES (?, ?, ?, ?, 'Egreso', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 1)");
         foreach ($rows as $row) {
             $egresoId = inout_uuid();
             $insert->execute([$egresoId, $b['transaccionId'], $row['Id'], $row['TipoPersona'], $row['Nombre'], $row['Apellido'], $row['Dni'],
                 $row['EmpresaId'], $row['EmpresaNombre'], $b['horario'] . ':00', $row['MotivoId'], $row['UsuarioVisitaId'],
-                trim((string) ($b['nota'] ?? '')) ?: null, $sede, $uid]);
+                trim((string) ($b['nota'] ?? '')) ?: null,
+                array_key_exists($row['Id'], $patentes) ? $patentes[$row['Id']] : $row['Patente'], $sede, $uid]);
             inout_guardar_destinatarios($pdo, $egresoId, inout_destinatarios_registro($pdo, $row));
         }
         $pdo->commit();
@@ -333,6 +357,7 @@ function handle_inout_seguridad(PDO $pdo, array $config, string $path, string $m
         $personas = array_map(static fn(array $r): array => [
             'id' => $r['Id'], 'label' => $r['Nombre'] . ' ' . $r['Apellido'], 'dni' => $r['Dni'],
             'empresa' => $r['EmpresaNombre'], 'motivo' => $r['MotivoNombre'],
+            'patente' => $r['Patente'],
             'ingreso' => date('d/m/Y', strtotime($r['DateAdd'])) . ' ' . substr($r['Horario'], 0, 5),
         ], $rows);
         json_response(['personas' => $personas, 'sede' => $sede], 200, $config);
@@ -371,7 +396,7 @@ function handle_inout_seguridad(PDO $pdo, array $config, string $path, string $m
         $count = $pdo->prepare('SELECT COUNT(*) FROM InOutSeguridad WHERE Sede = ? AND Estado = 1 AND DateAdd >= ? AND DateAdd < ?');
         $count->execute($params);
         $offset = ($page - 1) * 20;
-        $stmt = $pdo->prepare("SELECT Id AS id, Movimiento AS movimiento, DATE_FORMAT(Horario, '%H:%i') AS horario, Nombre AS nombre, Apellido AS apellido, EmpresaNombre AS empresa, DATE_FORMAT(DateAdd, '%d/%m/%Y') AS fecha FROM InOutSeguridad WHERE Sede = ? AND Estado = 1 AND DateAdd >= ? AND DateAdd < ? ORDER BY Horario DESC, DateAdd DESC, Id DESC LIMIT 20 OFFSET $offset");
+        $stmt = $pdo->prepare("SELECT Id AS id, Movimiento AS movimiento, DATE_FORMAT(Horario, '%H:%i') AS horario, Nombre AS nombre, Apellido AS apellido, EmpresaNombre AS empresa, Patente AS patente, DATE_FORMAT(DateAdd, '%d/%m/%Y') AS fecha FROM InOutSeguridad WHERE Sede = ? AND Estado = 1 AND DateAdd >= ? AND DateAdd < ? ORDER BY Horario DESC, DateAdd DESC, Id DESC LIMIT 20 OFFSET $offset");
         $stmt->execute($params);
         json_response(['registros' => $stmt->fetchAll(), 'total' => (int) $count->fetchColumn(), 'pagina' => $page, 'sede' => $sede, 'fecha' => $fecha], 200, $config);
         return;
@@ -437,12 +462,13 @@ function handle_inout_seguridad(PDO $pdo, array $config, string $path, string $m
         }
         unset($numero);
         if (count(array_unique($legajos)) !== count($legajos)) inout_error('Hay legajos repetidos en la carga.', $config);
+        $patentes = inout_patentes($b['patentesLegajos'] ?? [], $legajos, $config);
         $stmt = $pdo->prepare('SELECT Id, Legajo, Nombre AS nombre, Apellido AS apellido, Dni AS dni FROM Personal WHERE Legajo IN (' . implode(',', array_fill(0, count($legajos), '?')) . ') AND Estado = 1');
         $stmt->execute($legajos);
         $found = $stmt->fetchAll();
         if (count($found) !== count($legajos) || count(array_unique(array_column($found, 'Legajo'))) !== count($legajos)) inout_error('Uno de los legajos no está disponible o es ambiguo.', $config);
         if (count(array_unique(array_column($found, 'dni'))) !== count($found)) inout_error('Los empleados seleccionados tienen un DNI repetido. Revisá sus datos.', $config);
-        $personas = $found;
+        $personas = array_map(static fn(array $p): array => [...$p, 'patente' => $patentes[$p['Legajo']] ?? null], $found);
     } else {
         $empresaId = ($b['empresaId'] ?? null) ?: null;
         if ($empresaId) {
@@ -463,15 +489,16 @@ function handle_inout_seguridad(PDO $pdo, array $config, string $path, string $m
             if ($p['nombre'] === '' || $p['apellido'] === '' || inout_text_length($p['nombre']) > 100 || inout_text_length($p['apellido']) > 100 || !preg_match('/^\d{7,8}$/', $p['dni'])) inout_error('Revisá nombre, apellido y DNI de las personas.', $config);
             if (isset($dnis[$p['dni']])) inout_error('Hay un DNI repetido en la carga.', $config);
             $dnis[$p['dni']] = true;
+            $p['patente'] = inout_patente($p['patente'] ?? null, $config);
         }
         unset($p);
     }
     $pdo->beginTransaction();
     try {
-        $stmt = $pdo->prepare('INSERT INTO InOutSeguridad (Id, TransaccionId, TipoPersona, Movimiento, PersonalId, Legajo, Nombre, Apellido, Dni, EmpresaId, EmpresaNombre, Horario, MotivoId, UsuarioVisitaId, Nota, Sede, DateAdd, UserAdd, Estado) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 1)');
+        $stmt = $pdo->prepare('INSERT INTO InOutSeguridad (Id, TransaccionId, TipoPersona, Movimiento, PersonalId, Legajo, Nombre, Apellido, Dni, EmpresaId, EmpresaNombre, Horario, MotivoId, UsuarioVisitaId, Nota, Patente, Sede, DateAdd, UserAdd, Estado) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 1)');
         foreach ($personas as $p) {
             $registroId = inout_uuid();
-            $stmt->execute([$registroId, $transaction, $tipo, $movimiento, $tipo === 'RAEI' ? $p['Id'] : null, $tipo === 'RAEI' ? $p['Legajo'] : null, $p['nombre'], $p['apellido'], $p['dni'], $empresaId, $empresa, $hora . ':00', $b['motivoId'], $usuarioVisita ?: null, $nota ?: null, $sede, $uid]);
+            $stmt->execute([$registroId, $transaction, $tipo, $movimiento, $tipo === 'RAEI' ? $p['Id'] : null, $tipo === 'RAEI' ? $p['Legajo'] : null, $p['nombre'], $p['apellido'], $p['dni'], $empresaId, $empresa, $hora . ':00', $b['motivoId'], $usuarioVisita ?: null, $nota ?: null, $p['patente'], $sede, $uid]);
             inout_guardar_destinatarios($pdo, $registroId, $destinatarios);
         }
         $pdo->commit();
