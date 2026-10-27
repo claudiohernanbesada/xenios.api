@@ -425,33 +425,35 @@
 | [notas_traslado_pdf_qr](../xenios-movil/lib/notas_traslado.php#L635) | `function notas_traslado_pdf_qr(string &$content, float $x, float $y, string $text, float $module = 3.0): void` |
 | [notas_traslado_pdf_summary_box](../xenios-movil/lib/notas_traslado.php#L647) | `function notas_traslado_pdf_summary_box(string &$content, float $x, float $y, float $w, string $title, string $value): void` |
 | [notas_traslado_pdf_packages_box](../xenios-movil/lib/notas_traslado.php#L654) | `function notas_traslado_pdf_packages_box(string &$content, float $x, float $y, float $w, int $cantidad): void` |
-| [notas_traslado_pdf_build](../xenios-movil/lib/notas_traslado.php#L661) | `function notas_traslado_pdf_build(array $nota, array $detalles): string` |
-| [notas_traslado_map_row](../xenios-movil/lib/notas_traslado.php#L831) | `function notas_traslado_map_row(array $row, array $context = []): array` |
-| [notas_traslado_registrar_traza](../xenios-movil/lib/notas_traslado.php#L898) | `function notas_traslado_registrar_traza(PDO $pdo, string $notaId, string $accion, ?int $statusId, string $detalle, string $usuarioId): void` |
-| [notas_traslado_registrar_log](../xenios-movil/lib/notas_traslado.php#L913) | `function notas_traslado_registrar_log(PDO $pdo, string $usuarioId, string $detalle): void` |
-| [notas_traslado_registrar_notificacion](../xenios-movil/lib/notas_traslado.php#L928) | `function notas_traslado_registrar_notificacion(PDO $pdo, string $usuarioId, string $titulo, string $mensaje, string $tipo = 'info', ?string $urlDestino = null): void` |
-| [notas_traslado_solicitar_regeneracion_pdf_web](../xenios-movil/lib/notas_traslado.php#L947) | `function notas_traslado_solicitar_regeneracion_pdf_web(array $config, string $notaId): bool` |
-| [notas_traslado_notificar_actualizacion_web](../xenios-movil/lib/notas_traslado.php#L1012) | `function notas_traslado_notificar_actualizacion_web(array $config, string $notaId): void` |
-| [notas_traslado_obtener_pdf_blob](../xenios-movil/lib/notas_traslado.php#L1051) | `function notas_traslado_obtener_pdf_blob(PDO $pdo, string $notaId): string` |
-| [notas_traslado_generar_pdf_api](../xenios-movil/lib/notas_traslado.php#L1058) | `function notas_traslado_generar_pdf_api(PDO $pdo, string $notaId): string` |
-| [notas_traslado_regenerar_y_obtener_pdf](../xenios-movil/lib/notas_traslado.php#L1089) | `function notas_traslado_regenerar_y_obtener_pdf(PDO $pdo, array $config, string $notaId): string` |
-| [notas_traslado_actualizar_estado_y_traza](../xenios-movil/lib/notas_traslado.php#L1094) | `function notas_traslado_actualizar_estado_y_traza(` |
-| [notas_traslado_base_select](../xenios-movil/lib/notas_traslado.php#L1156) | `function notas_traslado_base_select(): string` |
-| [notas_traslado_puede_ver](../xenios-movil/lib/notas_traslado.php#L1190) | `function notas_traslado_puede_ver(array $nota, array $roles, string $usuarioId, string $depositoId, string $usuarioMail = ''): bool` |
-| [notas_traslado_tiene_tarea_pendiente](../xenios-movil/lib/notas_traslado.php#L1245) | `function notas_traslado_tiene_tarea_pendiente(array $row, array $context): bool` |
-| [handle_notas_traslado_list](../xenios-movil/lib/notas_traslado.php#L1270) | `function handle_notas_traslado_list(PDO $pdo, array $config): void` |
-| [handle_notas_traslado_empresas_transporte](../xenios-movil/lib/notas_traslado.php#L1393) | `function handle_notas_traslado_empresas_transporte(PDO $pdo, array $config): void` |
-| [notas_traslado_empresa_transporte_valida](../xenios-movil/lib/notas_traslado.php#L1417) | `function notas_traslado_empresa_transporte_valida(PDO $pdo, string $empresaId): bool` |
-| [handle_notas_traslado_transporte_externo](../xenios-movil/lib/notas_traslado.php#L1433) | `function handle_notas_traslado_transporte_externo(PDO $pdo, array $config, string $notaId): void` |
-| [handle_notas_traslado_scan](../xenios-movil/lib/notas_traslado.php#L1558) | `function handle_notas_traslado_scan(PDO $pdo, array $config): void` |
-| [notas_traslado_personal_id_usuario](../xenios-movil/lib/notas_traslado.php#L1725) | `function notas_traslado_personal_id_usuario(PDO $pdo, array $user): string` |
-| [handle_notas_traslado_entregado](../xenios-movil/lib/notas_traslado.php#L1753) | `function handle_notas_traslado_entregado(PDO $pdo, array $config, string $notaId): void` |
-| [handle_notas_traslado_recibido](../xenios-movil/lib/notas_traslado.php#L1825) | `function handle_notas_traslado_recibido(PDO $pdo, array $config, string $notaId): void` |
-| [handle_notas_traslado_aprobacion](../xenios-movil/lib/notas_traslado.php#L1891) | `function handle_notas_traslado_aprobacion(PDO $pdo, array $config, string $notaId, bool $aprobar): void` |
-| [handle_notas_traslado_regenerar_pdf](../xenios-movil/lib/notas_traslado.php#L1964) | `function handle_notas_traslado_regenerar_pdf(PDO $pdo, array $config, string $notaId): void` |
-| [handle_notas_traslado_documento](../xenios-movil/lib/notas_traslado.php#L2008) | `function handle_notas_traslado_documento(PDO $pdo, array $config, string $notaId): void` |
-| [handle_notas_traslado_documento_firmado](../xenios-movil/lib/notas_traslado.php#L2091) | `function handle_notas_traslado_documento_firmado(PDO $pdo, array $config, string $notaId): void` |
-| [handle_notas_traslado_routes](../xenios-movil/lib/notas_traslado.php#L2181) | `function handle_notas_traslado_routes(PDO $pdo, array $config, string $path, string $method): bool` |
+| [notas_traslado_marca_empresa](../xenios-movil/lib/notas_traslado.php#L661) | `function notas_traslado_marca_empresa(PDO $pdo, array $nota): ?array` |
+| [notas_traslado_pdf_marca_marker](../xenios-movil/lib/notas_traslado.php#L684) | `function notas_traslado_pdf_marca_marker(?array $marca): string` |
+| [notas_traslado_pdf_build](../xenios-movil/lib/notas_traslado.php#L692) | `function notas_traslado_pdf_build(array $nota, array $detalles, ?array $marca = null): string` |
+| [notas_traslado_map_row](../xenios-movil/lib/notas_traslado.php#L866) | `function notas_traslado_map_row(array $row, array $context = []): array` |
+| [notas_traslado_registrar_traza](../xenios-movil/lib/notas_traslado.php#L933) | `function notas_traslado_registrar_traza(PDO $pdo, string $notaId, string $accion, ?int $statusId, string $detalle, string $usuarioId): void` |
+| [notas_traslado_registrar_log](../xenios-movil/lib/notas_traslado.php#L948) | `function notas_traslado_registrar_log(PDO $pdo, string $usuarioId, string $detalle): void` |
+| [notas_traslado_registrar_notificacion](../xenios-movil/lib/notas_traslado.php#L963) | `function notas_traslado_registrar_notificacion(PDO $pdo, string $usuarioId, string $titulo, string $mensaje, string $tipo = 'info', ?string $urlDestino = null): void` |
+| [notas_traslado_solicitar_regeneracion_pdf_web](../xenios-movil/lib/notas_traslado.php#L982) | `function notas_traslado_solicitar_regeneracion_pdf_web(array $config, string $notaId): bool` |
+| [notas_traslado_notificar_actualizacion_web](../xenios-movil/lib/notas_traslado.php#L1047) | `function notas_traslado_notificar_actualizacion_web(array $config, string $notaId): void` |
+| [notas_traslado_obtener_pdf_blob](../xenios-movil/lib/notas_traslado.php#L1086) | `function notas_traslado_obtener_pdf_blob(PDO $pdo, string $notaId): string` |
+| [notas_traslado_generar_pdf_api](../xenios-movil/lib/notas_traslado.php#L1093) | `function notas_traslado_generar_pdf_api(PDO $pdo, string $notaId): string` |
+| [notas_traslado_regenerar_y_obtener_pdf](../xenios-movil/lib/notas_traslado.php#L1124) | `function notas_traslado_regenerar_y_obtener_pdf(PDO $pdo, array $config, string $notaId): string` |
+| [notas_traslado_actualizar_estado_y_traza](../xenios-movil/lib/notas_traslado.php#L1129) | `function notas_traslado_actualizar_estado_y_traza(` |
+| [notas_traslado_base_select](../xenios-movil/lib/notas_traslado.php#L1191) | `function notas_traslado_base_select(): string` |
+| [notas_traslado_puede_ver](../xenios-movil/lib/notas_traslado.php#L1225) | `function notas_traslado_puede_ver(array $nota, array $roles, string $usuarioId, string $depositoId, string $usuarioMail = ''): bool` |
+| [notas_traslado_tiene_tarea_pendiente](../xenios-movil/lib/notas_traslado.php#L1280) | `function notas_traslado_tiene_tarea_pendiente(array $row, array $context): bool` |
+| [handle_notas_traslado_list](../xenios-movil/lib/notas_traslado.php#L1305) | `function handle_notas_traslado_list(PDO $pdo, array $config): void` |
+| [handle_notas_traslado_empresas_transporte](../xenios-movil/lib/notas_traslado.php#L1428) | `function handle_notas_traslado_empresas_transporte(PDO $pdo, array $config): void` |
+| [notas_traslado_empresa_transporte_valida](../xenios-movil/lib/notas_traslado.php#L1452) | `function notas_traslado_empresa_transporte_valida(PDO $pdo, string $empresaId): bool` |
+| [handle_notas_traslado_transporte_externo](../xenios-movil/lib/notas_traslado.php#L1468) | `function handle_notas_traslado_transporte_externo(PDO $pdo, array $config, string $notaId): void` |
+| [handle_notas_traslado_scan](../xenios-movil/lib/notas_traslado.php#L1593) | `function handle_notas_traslado_scan(PDO $pdo, array $config): void` |
+| [notas_traslado_personal_id_usuario](../xenios-movil/lib/notas_traslado.php#L1760) | `function notas_traslado_personal_id_usuario(PDO $pdo, array $user): string` |
+| [handle_notas_traslado_entregado](../xenios-movil/lib/notas_traslado.php#L1788) | `function handle_notas_traslado_entregado(PDO $pdo, array $config, string $notaId): void` |
+| [handle_notas_traslado_recibido](../xenios-movil/lib/notas_traslado.php#L1860) | `function handle_notas_traslado_recibido(PDO $pdo, array $config, string $notaId): void` |
+| [handle_notas_traslado_aprobacion](../xenios-movil/lib/notas_traslado.php#L1926) | `function handle_notas_traslado_aprobacion(PDO $pdo, array $config, string $notaId, bool $aprobar): void` |
+| [handle_notas_traslado_regenerar_pdf](../xenios-movil/lib/notas_traslado.php#L1999) | `function handle_notas_traslado_regenerar_pdf(PDO $pdo, array $config, string $notaId): void` |
+| [handle_notas_traslado_documento](../xenios-movil/lib/notas_traslado.php#L2043) | `function handle_notas_traslado_documento(PDO $pdo, array $config, string $notaId): void` |
+| [handle_notas_traslado_documento_firmado](../xenios-movil/lib/notas_traslado.php#L2127) | `function handle_notas_traslado_documento_firmado(PDO $pdo, array $config, string $notaId): void` |
+| [handle_notas_traslado_routes](../xenios-movil/lib/notas_traslado.php#L2217) | `function handle_notas_traslado_routes(PDO $pdo, array $config, string $path, string $method): bool` |
 
 ## xenios-movil/lib/novedades.php
 
@@ -606,6 +608,12 @@
 | Función | Firma |
 |---|---|
 | [comprobar](../xenios-movil/tools/test_doble_factor.php#L4) | `function comprobar(bool $condicion, string $nombre): void` |
+
+## xenios-movil/tools/test_empresa_logo.php
+
+| Función | Firma |
+|---|---|
+| [logo_check](../xenios-movil/tools/test_empresa_logo.php#L7) | `function logo_check(bool $condition, string $label): void` |
 
 ## xenios-movil/tools/test_horas_nocturnas_periodo.php
 

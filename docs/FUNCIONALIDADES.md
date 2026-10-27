@@ -49,6 +49,7 @@ Esta documentación describe las funciones presentes en el código. Las restricc
 - Aprobación y rechazo para envíos sujetos a autorización. Los envíos a empleados requieren aprobación; también los externos cuando la empresa no es frecuente.
 - Confirmación de entrega y recepción por los participantes autorizados.
 - Descarga del documento y del documento firmado; regeneración del PDF mediante el backend web.
+- El PDF generado por la API toma el logo y la identidad de la empresa propietaria de la nota, desde `Hoteles`. Usa la copia JPEG derivada del SVG optimizado. La caché incorpora una huella de logo/nombre/datos fiscales y se renueva al cambiar la marca; los archivos firmados conservan su circuito independiente.
 - Estados existentes: 1 generada; 2 recepción despacho; 3 en tránsito; 4 recepción sede; 5 entregado; 6 recibida; 7 anulada; 8 pendiente aprobación; 9 rechazada. No todas las transiciones son válidas para todos los roles.
 - Roles admitidos por el módulo: `SYSADMIN`, `ADMIN`, `NOTA_TRASLADO`, `NOTA_TRASLADO_FULL_USERS`, `NOTA_TRASLADO_DESPACHO`, `NOTA_TRASLADO_TRANSPORTE`, `NOTA_TRASLADO_APROBACION`, `NOTA_TRASLADO_SEGURIDAD`, `EMPLEADO`. Cada acción agrega controles específicos.
 

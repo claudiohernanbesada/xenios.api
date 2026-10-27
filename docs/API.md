@@ -44,21 +44,21 @@ Estados comunes: 200 operación, 201 creación, 204 preflight, 400 datos, 401 cr
 | GET | `/reportes/horas-trabajadas` | S | [handle_reporte_horas_trabajadas_xenios](../xenios-movil/index.php#L949) |
 | GET | `/reportes/horas-extras-diarias` | S | [handle_reporte_horas_extras_diarias_xenios](../xenios-movil/index.php#L1083) |
 | POST | `/horas-extras/motivos-pendientes/enviar-mail` | S | [handle_horas_extra_motivo_pendientes_mail](../xenios-movil/index.php#L165) |
-| GET | `/notas-traslado` | B | [handle_notas_traslado_list](../xenios-movil/lib/notas_traslado.php#L1271) |
-| POST | `/notas-traslado/scan` | B | [handle_notas_traslado_scan](../xenios-movil/lib/notas_traslado.php#L1559) |
+| GET | `/notas-traslado` | B | [handle_notas_traslado_list](../xenios-movil/lib/notas_traslado.php#L1306) |
+| POST | `/notas-traslado/scan` | B | [handle_notas_traslado_scan](../xenios-movil/lib/notas_traslado.php#L1594) |
 | POST | `/novedades` | S | [handle_novedades_enviar](../xenios-movil/index.php#L1002) |
 | GET | `/autorizaciones-salida/{id}/archivo` | U | [handle_autorizacion_archivo](../xenios-movil/index.php#L652) |
 | GET | `/novedades/{id}` | U | [handle_novedades_routes](../xenios-movil/index.php#L1053) |
 | POST | `/novedades/{id}/leida` | U | [handle_novedades_routes](../xenios-movil/index.php#L1053) |
-| GET | `/notas-traslado/empresas-transporte` | B | [handle_notas_traslado_empresas_transporte](../xenios-movil/lib/notas_traslado.php#L1394) |
-| POST | `/notas-traslado/{id}/transporte-externo` | B | [handle_notas_traslado_transporte_externo](../xenios-movil/lib/notas_traslado.php#L1434) |
-| POST | `/notas-traslado/{id}/entregado` | B | [handle_notas_traslado_entregado](../xenios-movil/lib/notas_traslado.php#L1754) |
-| POST | `/notas-traslado/{id}/recibido` | B | [handle_notas_traslado_recibido](../xenios-movil/lib/notas_traslado.php#L1826) |
-| POST | `/notas-traslado/{id}/aprobar` | B | [handle_notas_traslado_aprobacion](../xenios-movil/lib/notas_traslado.php#L1892) |
-| POST | `/notas-traslado/{id}/regenerar-pdf` | B | [handle_notas_traslado_regenerar_pdf](../xenios-movil/lib/notas_traslado.php#L1965) |
-| POST | `/notas-traslado/{id}/rechazar` | B | [handle_notas_traslado_aprobacion](../xenios-movil/lib/notas_traslado.php#L1892) |
-| GET | `/notas-traslado/{id}/documento` | B | [handle_notas_traslado_documento](../xenios-movil/lib/notas_traslado.php#L2009) |
-| GET | `/notas-traslado/{id}/documento-firmado` | B | [handle_notas_traslado_documento_firmado](../xenios-movil/lib/notas_traslado.php#L2092) |
+| GET | `/notas-traslado/empresas-transporte` | B | [handle_notas_traslado_empresas_transporte](../xenios-movil/lib/notas_traslado.php#L1429) |
+| POST | `/notas-traslado/{id}/transporte-externo` | B | [handle_notas_traslado_transporte_externo](../xenios-movil/lib/notas_traslado.php#L1469) |
+| POST | `/notas-traslado/{id}/entregado` | B | [handle_notas_traslado_entregado](../xenios-movil/lib/notas_traslado.php#L1789) |
+| POST | `/notas-traslado/{id}/recibido` | B | [handle_notas_traslado_recibido](../xenios-movil/lib/notas_traslado.php#L1861) |
+| POST | `/notas-traslado/{id}/aprobar` | B | [handle_notas_traslado_aprobacion](../xenios-movil/lib/notas_traslado.php#L1927) |
+| POST | `/notas-traslado/{id}/regenerar-pdf` | B | [handle_notas_traslado_regenerar_pdf](../xenios-movil/lib/notas_traslado.php#L2000) |
+| POST | `/notas-traslado/{id}/rechazar` | B | [handle_notas_traslado_aprobacion](../xenios-movil/lib/notas_traslado.php#L1927) |
+| GET | `/notas-traslado/{id}/documento` | B | [handle_notas_traslado_documento](../xenios-movil/lib/notas_traslado.php#L2044) |
+| GET | `/notas-traslado/{id}/documento-firmado` | B | [handle_notas_traslado_documento_firmado](../xenios-movil/lib/notas_traslado.php#L2128) |
 | GET | `/inout-seguridad` | U | [handle_inout_seguridad](../xenios-movil/lib/inout_seguridad.php#L292) |
 | POST | `/inout-seguridad` | U | [handle_inout_seguridad](../xenios-movil/lib/inout_seguridad.php#L292) |
 | GET | `/inout-seguridad/opciones` | U | [handle_inout_seguridad](../xenios-movil/lib/inout_seguridad.php#L292) |
@@ -580,7 +580,7 @@ json_response([
 
 ### handle_notas_traslado_list
 
-Fuente: [xenios-movil/lib/notas_traslado.php:1271](../xenios-movil/lib/notas_traslado.php#L1271).
+Fuente: [xenios-movil/lib/notas_traslado.php:1306](../xenios-movil/lib/notas_traslado.php#L1306).
 
 Query: `desde`, `hasta`, `mostrarTodos`, `resumenPendientes`.
 
@@ -597,7 +597,7 @@ json_response(['notas' => array_map(static fn ($row) => notas_traslado_map_row($
 
 ### handle_notas_traslado_scan
 
-Fuente: [xenios-movil/lib/notas_traslado.php:1559](../xenios-movil/lib/notas_traslado.php#L1559).
+Fuente: [xenios-movil/lib/notas_traslado.php:1594](../xenios-movil/lib/notas_traslado.php#L1594).
 
 JSON/formulario: `id`, `key`, `notaTrasladoId`, `qr`.
 
@@ -681,7 +681,7 @@ json_response(['ok' => $ok], $ok ? 200 : 404, $config);
 
 ### handle_notas_traslado_empresas_transporte
 
-Fuente: [xenios-movil/lib/notas_traslado.php:1394](../xenios-movil/lib/notas_traslado.php#L1394).
+Fuente: [xenios-movil/lib/notas_traslado.php:1429](../xenios-movil/lib/notas_traslado.php#L1429).
 
 Controles locales: `notas_traslado_require_auth`, `notas_traslado_require_role`.
 
@@ -694,7 +694,7 @@ json_response(['empresas' => $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []], 200, $con
 
 ### handle_notas_traslado_transporte_externo
 
-Fuente: [xenios-movil/lib/notas_traslado.php:1434](../xenios-movil/lib/notas_traslado.php#L1434).
+Fuente: [xenios-movil/lib/notas_traslado.php:1469](../xenios-movil/lib/notas_traslado.php#L1469).
 
 JSON/formulario: `apellido`, `dni`, `empresaId`, `nombre`, `transporteExternoApellido`, `transporteExternoDni`, `transporteExternoEmpresaId`, `transporteExternoNombre`.
 
@@ -715,7 +715,7 @@ json_response(['ok' => true, 'message' => 'Transporte externo asignado correctam
 
 ### handle_notas_traslado_entregado
 
-Fuente: [xenios-movil/lib/notas_traslado.php:1754](../xenios-movil/lib/notas_traslado.php#L1754).
+Fuente: [xenios-movil/lib/notas_traslado.php:1789](../xenios-movil/lib/notas_traslado.php#L1789).
 
 Controles locales: `notas_traslado_require_auth`, `notas_traslado_require_role`.
 
@@ -730,7 +730,7 @@ json_response(['ok' => true, 'message' => 'Entrega registrada correctamente.'], 
 
 ### handle_notas_traslado_recibido
 
-Fuente: [xenios-movil/lib/notas_traslado.php:1826](../xenios-movil/lib/notas_traslado.php#L1826).
+Fuente: [xenios-movil/lib/notas_traslado.php:1861](../xenios-movil/lib/notas_traslado.php#L1861).
 
 Controles locales: `notas_traslado_require_auth`, `notas_traslado_require_role`.
 
@@ -744,7 +744,7 @@ json_response(['ok' => true, 'message' => 'Recepción registrada correctamente.'
 
 ### handle_notas_traslado_aprobacion
 
-Fuente: [xenios-movil/lib/notas_traslado.php:1892](../xenios-movil/lib/notas_traslado.php#L1892).
+Fuente: [xenios-movil/lib/notas_traslado.php:1927](../xenios-movil/lib/notas_traslado.php#L1927).
 
 Controles locales: `notas_traslado_require_auth`, `notas_traslado_require_role`.
 
@@ -766,7 +766,7 @@ json_response([
 
 ### handle_notas_traslado_regenerar_pdf
 
-Fuente: [xenios-movil/lib/notas_traslado.php:1965](../xenios-movil/lib/notas_traslado.php#L1965).
+Fuente: [xenios-movil/lib/notas_traslado.php:2000](../xenios-movil/lib/notas_traslado.php#L2000).
 
 Controles locales: `notas_traslado_require_auth`, `notas_traslado_require_role`.
 
@@ -783,7 +783,7 @@ json_response(['message' => 'No se pudo generar el PDF de la Nota de Traslado.']
 
 ### handle_notas_traslado_documento
 
-Fuente: [xenios-movil/lib/notas_traslado.php:2009](../xenios-movil/lib/notas_traslado.php#L2009).
+Fuente: [xenios-movil/lib/notas_traslado.php:2044](../xenios-movil/lib/notas_traslado.php#L2044).
 
 Controles locales: `notas_traslado_require_auth`, `notas_traslado_require_role`.
 
@@ -801,7 +801,7 @@ json_response(['message' => 'No se pudo generar el PDF de la Nota de Traslado de
 
 ### handle_notas_traslado_documento_firmado
 
-Fuente: [xenios-movil/lib/notas_traslado.php:2092](../xenios-movil/lib/notas_traslado.php#L2092).
+Fuente: [xenios-movil/lib/notas_traslado.php:2128](../xenios-movil/lib/notas_traslado.php#L2128).
 
 Controles locales: `notas_traslado_require_auth`, `notas_traslado_require_role`.
 

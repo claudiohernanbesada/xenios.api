@@ -15,8 +15,8 @@ const NT_STATUS_RECHAZADA = 9;
 const NT_TIPO_ENVIO_INTERNO = 'interno';
 const NT_TIPO_ENVIO_EXTERNO = 'externo';
 const NT_TIPO_ENVIO_EMPLEADO = 'empleado';
-const NOTAS_TRASLADO_API_VERSION = '2026-10-07-transporte-externo-mb-fallback-v4';
-const NT_PDF_LAYOUT_MARKER = 'NT_PDF_LAYOUT_BULTOS_CARD_V2';
+const NOTAS_TRASLADO_API_VERSION = '2026-10-27-empresa-logo-v5';
+const NT_PDF_LAYOUT_MARKER = 'NT_PDF_LAYOUT_EMPRESA_LOGO_V3';
 
 function notas_traslado_tipo_envio(array $nota): string
 {
@@ -659,14 +659,45 @@ function notas_traslado_pdf_packages_box(string &$content, float $x, float $y, f
     notas_traslado_pdf_text($content, $x + 10, $y + 9, (string) max(1, $cantidad), 16, true);
 }
 
-function notas_traslado_pdf_build(array $nota, array $detalles): string
+function notas_traslado_marca_empresa(PDO $pdo, array $nota): ?array
+{
+    // The owner comes from the persisted note, never a company supplied by the client.
+    try {
+        $stmt = $pdo->prepare('SELECT e.Nombre, e.RazonSocial, e.IdentificacionFiscal, e.Direccion, e.LogoPdfJpeg
+            FROM NotasTraslado n INNER JOIN Hoteles e ON e.Id = n.EmpresaTenantId WHERE n.Id = ? LIMIT 1');
+        $stmt->execute([(string) $nota['Id']]);
+        $empresa = $stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        // Supports the deployment window before AddEmpresaLogo is applied.
+        if (in_array((string) $e->getCode(), ['42S02', '42S22'], true)) return null;
+        throw $e;
+    }
+    if (!$empresa) return null;
+    $bytes = $empresa['LogoPdfJpeg'] ?? null;
+    if (is_resource($bytes)) $bytes = stream_get_contents($bytes);
+    $info = is_string($bytes) && strlen($bytes) <= 512 * 1024 ? @getimagesizefromstring($bytes) : false;
+    $empresa['logo'] = is_array($info) && ($info[2] ?? 0) === IMAGETYPE_JPEG
+        ? ['name' => 'ImLogo', 'width' => (int) $info[0], 'height' => (int) $info[1], 'data' => $bytes] : null;
+    unset($empresa['LogoPdfJpeg']);
+    return $empresa;
+}
+
+function notas_traslado_pdf_marca_marker(?array $marca): string
+{
+    return NT_PDF_LAYOUT_MARKER . '_' . substr(hash('sha256', serialize([
+        $marca['Nombre'] ?? '', $marca['RazonSocial'] ?? '', $marca['IdentificacionFiscal'] ?? '',
+        $marca['Direccion'] ?? '', $marca['logo']['data'] ?? '',
+    ])), 0, 16);
+}
+
+function notas_traslado_pdf_build(array $nota, array $detalles, ?array $marca = null): string
 {
     $pages = [];
-    $content = "% " . NT_PDF_LAYOUT_MARKER . "\n";
+    $content = "% " . notas_traslado_pdf_marca_marker($marca) . "\n";
     $y = 802.0;
     $assetsDir = dirname(__DIR__) . '/assets';
     $images = array_values(array_filter([
-        notas_traslado_pdf_jpeg_resource('ImLogo', notas_traslado_first_existing_file([
+        $marca['logo'] ?? notas_traslado_pdf_jpeg_resource('ImLogo', notas_traslado_first_existing_file([
             $assetsDir . '/logoXenios.jpg',
             dirname(__DIR__, 2) . '/img/logoXenios.jpg',
         ])),
@@ -682,13 +713,17 @@ function notas_traslado_pdf_build(array $nota, array $detalles): string
     $imageNames = array_column($images, 'name');
 
     if (in_array('ImLogo', $imageNames, true)) {
-        notas_traslado_pdf_image($content, 'ImLogo', 40, 724, 150, 72.58);
+        $logo = $images[array_search('ImLogo', array_column($images, 'name'), true)];
+        $escalaLogo = min(150.0 / max(1, $logo['width']), 65.0 / max(1, $logo['height']));
+        $altoLogo = $logo['height'] * $escalaLogo;
+        notas_traslado_pdf_image($content, 'ImLogo', 40, 796 - $altoLogo, $logo['width'] * $escalaLogo, $altoLogo);
     } else {
         notas_traslado_pdf_text($content, 40, 770, 'XENIOS', 26, true, '0.05 0.24 0.52');
     }
-    notas_traslado_pdf_text($content, 40, 708, 'METALURGICA XENIOS S.A.', 11, true);
-    notas_traslado_pdf_text($content, 40, 693, 'CUIT: 30-51663575-0');
-    notas_traslado_pdf_text($content, 40, 678, 'IVA RESPONSABLE INSCRIPTO');
+    $nombreEmpresa = trim((string) ($marca['RazonSocial'] ?? '')) ?: (string) ($marca['Nombre'] ?? 'Xenios');
+    notas_traslado_pdf_text($content, 40, 708, $nombreEmpresa, 11, true);
+    notas_traslado_pdf_text($content, 40, 693, 'Identificacion fiscal: ' . (trim((string) ($marca['IdentificacionFiscal'] ?? '')) ?: '-'));
+    notas_traslado_pdf_text($content, 40, 678, 'Empresa de origen');
 
     notas_traslado_pdf_rect($content, 238, 681, 115, 115, '0.82 0.84 0.86', '1 1 1');
     notas_traslado_pdf_qr($content, 251, 784, (string) $nota['Id'], 2.7);
@@ -779,7 +814,7 @@ function notas_traslado_pdf_build(array $nota, array $detalles): string
     }
 
     notas_traslado_pdf_line($content, 32, 58, 563, 58, '0.88 0.89 0.90');
-    notas_traslado_pdf_text($content, 52, 34, 'METALURGICA XENIOS S.A. - 25 de Mayo 2765, San Fernando CP (1646) - Buenos Aires, Argentina', 10, true);
+    notas_traslado_pdf_text($content, 52, 34, $nombreEmpresa . (empty($marca['Direccion']) ? '' : ' - ' . $marca['Direccion']), 10, true);
     $pages[] = $content;
 
     $pageCount = count($pages);
@@ -1074,7 +1109,7 @@ function notas_traslado_generar_pdf_api(PDO $pdo, string $notaId): string
     $detStmt->execute(['id' => $notaId]);
     $detalles = $detStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-    $pdf = notas_traslado_pdf_build($nota, $detalles);
+    $pdf = notas_traslado_pdf_build($nota, $detalles, notas_traslado_marca_empresa($pdo, $nota));
     if ($pdf === '') {
         return '';
     }
@@ -2055,7 +2090,8 @@ function handle_notas_traslado_documento(PDO $pdo, array $config, string $notaId
     }
 
     $pdf = notas_traslado_obtener_pdf_blob($pdo, $notaId);
-    $pdfDesactualizado = $pdf !== '' && strpos($pdf, NT_PDF_LAYOUT_MARKER) === false;
+    $marcaEmpresa = notas_traslado_marca_empresa($pdo, $nota);
+    $pdfDesactualizado = $pdf !== '' && strpos($pdf, notas_traslado_pdf_marca_marker($marcaEmpresa)) === false;
     if ($pdf === '' || $pdfDesactualizado) {
         if ($statusNota === NT_STATUS_PENDIENTE_APROBACION && $puedeVerPendienteAprobacion) {
             $detStmt = $pdo->prepare(
@@ -2066,7 +2102,7 @@ function handle_notas_traslado_documento(PDO $pdo, array $config, string $notaId
             );
             $detStmt->execute(['id' => $notaId]);
             $detalles = $detStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-            $pdf = notas_traslado_pdf_build($nota, $detalles);
+            $pdf = notas_traslado_pdf_build($nota, $detalles, $marcaEmpresa);
         } else {
             $pdf = notas_traslado_regenerar_y_obtener_pdf($pdo, $config, $notaId);
             if ($pdf === '') {

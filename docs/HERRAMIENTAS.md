@@ -41,6 +41,7 @@ No se instaló cron, timer ni tarea de Windows en esta entrega. Definir periodic
 | test_push_visitas.php | Avisos de visita y push; puede enviar notificaciones |
 | test_registro_personal_jornadas.php | Reconstrucción de jornadas |
 | test_reportes_empleados_periodo.php | Reportes de empleados por período |
+| test_empresa_logo.php | Marca y aislamiento por propietario en PDF de notas de traslado; usa SQLite temporal y no consulta datos reales |
 
 Revisar dependencias y argumentos antes de ejecutar. Una prueba no ejecutada no se considera aprobada. Las pruebas que requieren base, SMTP o dispositivo no se sustituyen por lint.
 
