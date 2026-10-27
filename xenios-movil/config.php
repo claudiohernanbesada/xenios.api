@@ -73,10 +73,7 @@ if (!function_exists('xenios_movil_env_int')) {
 }
 
 $xeniosMovilEnvPaths = [
-    getenv('XENIOS_MOVIL_ENV_FILE') ?: '',
-    __DIR__ . '/.env',
-    dirname(__DIR__) . '/.env',
-    '/etc/xenios/api.env',
+    xenios_env_path(),
 ];
 
 if (!function_exists('xenios_movil_env_value')) {
@@ -92,8 +89,7 @@ if (!function_exists('xenios_movil_env_value')) {
     }
 }
 
-$appVersionFromEnvFile = xenios_movil_dotenv_value('EXPO_PUBLIC_APP_VERSION', $xeniosMovilEnvPaths);
-$publishedAppVersion = $appVersionFromEnvFile !== '' ? $appVersionFromEnvFile : '1.0.0';
+$publishedAppVersion = xenios_movil_env_value('EXPO_PUBLIC_APP_VERSION', $xeniosMovilEnvPaths, '1.0.0');
 
 $dbCredentials = (static function (): array {
     require dirname(__DIR__) . '/_inc/credenciales.php';

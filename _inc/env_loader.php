@@ -1,11 +1,29 @@
 <?php
 declare(strict_types=1);
 
+function xenios_env_path(): string
+{
+    static $path = null;
+    if ($path !== null) {
+        return $path;
+    }
+
+    $configuredPath = getenv('XENIOS_MOVIL_ENV_FILE');
+    if ($configuredPath !== false && trim($configuredPath) !== '') {
+        return $path = trim($configuredPath);
+    }
+
+    // El servidor nunca busca secretos dentro del directorio publicado.
+    return $path = PHP_OS_FAMILY === 'Windows'
+        ? dirname(__DIR__) . '/.env'
+        : '/etc/xenios/api/.env';
+}
+
 function xenios_cargar_env(?string $path = null): void
 {
     static $loaded = [];
 
-    $path ??= dirname(__DIR__) . '/.env';
+    $path ??= xenios_env_path();
     $realPath = realpath($path);
 
     if ($realPath === false || isset($loaded[$realPath]) || !is_readable($realPath)) {
@@ -54,4 +72,4 @@ function xenios_cargar_env(?string $path = null): void
     }
 }
 
-xenios_cargar_env(getenv('XENIOS_MOVIL_ENV_FILE') ?: (is_file('/etc/xenios/api.env') ? '/etc/xenios/api.env' : null));
+xenios_cargar_env();

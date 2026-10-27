@@ -1,6 +1,7 @@
 """Local integration checks using real Apache rewrites and PHP. No database writes."""
 import argparse
 import base64
+import json
 import os
 from pathlib import Path
 import socket
@@ -47,12 +48,48 @@ echo 'Token checks OK';'''
 result = subprocess.run([str(php), '-n', '-r', unit], cwd=root, env=env, capture_output=True, text=True)
 expect(result.returncode == 0, result.stdout + result.stderr)
 
+with tempfile.TemporaryDirectory(prefix='xenios-env-check-') as env_temp:
+    private_env = Path(env_temp) / '.env'
+    private_env.write_text('XENIOS_DB_USER=private-test-user\n'
+                           'XENIOS_JWT_SECRET="private-test-secret"\n'
+                           'EXPO_PUBLIC_APP_VERSION=2.0.0\n'
+                           'XENIOS_MOVIL_ENV_FILE=ignored-path\n', encoding='utf-8')
+    loader_env = {key: value for key, value in os.environ.items()
+                  if not key.startswith(('XENIOS_', 'EXPO_PUBLIC_APP_VERSION'))}
+    loader_env['XENIOS_MOVIL_ENV_FILE'] = str(private_env)
+    loader_check = '''$config = require 'xenios-movil/config.php';
+if ($config['db']['user'] !== 'private-test-user') exit(1);
+if ($config['jwt_secret'] !== 'private-test-secret') exit(2);
+if ($config['app_version']['android_latest_version'] !== '2.0.0') exit(3);
+if (xenios_env_path() !== getenv('XENIOS_MOVIL_ENV_FILE')) exit(4);'''
+    result = subprocess.run([str(php), '-n', '-r', loader_check], cwd=root,
+                            env=loader_env, capture_output=True, text=True)
+    expect(result.returncode == 0, 'private dotenv loads consistently: ' + result.stderr)
+    loader_env.update(XENIOS_DB_USER='process-test-user', EXPO_PUBLIC_APP_VERSION='3.0.0')
+    precedence_check = '''$config = require 'xenios-movil/config.php';
+if ($config['db']['user'] !== 'process-test-user') exit(1);
+if ($config['app_version']['android_latest_version'] !== '3.0.0') exit(2);'''
+    result = subprocess.run([str(php), '-n', '-r', precedence_check], cwd=root,
+                            env=loader_env, capture_output=True, text=True)
+    expect(result.returncode == 0, 'process environment takes precedence: ' + result.stderr)
+    loader_env.pop('XENIOS_DB_USER')
+    loader_env['XENIOS_MOVIL_ENV_FILE'] = str(Path(env_temp) / 'missing.env')
+    missing_check = '''$config = require 'xenios-movil/config.php';
+if ($config['db']['user'] !== '' || $config['jwt_secret'] !== '') exit(1);'''
+    result = subprocess.run([str(php), '-n', '-r', missing_check], cwd=root,
+                            env=loader_env, capture_output=True, text=True)
+    expect(result.returncode == 0, 'missing private dotenv never loads public files: ' + result.stderr)
+
 with tempfile.TemporaryDirectory(prefix='xenios-api-check-') as temp:
     temp = Path(temp)
     env['XENIOS_RATE_LIMIT_DIR'] = str(temp / 'rate')
     env['XENIOS_AVATAR_DIR'] = str(temp / 'avatars')
     env['XENIOS_PERSONAL_DIR'] = str(temp / 'personal')
-    (temp / 'php.ini').write_text('display_errors=Off\nlog_errors=On\n', encoding='ascii')
+    env['PATH_LEGAJO_PERSONAL'] = str(temp / 'legajo')
+    (temp / 'legajo').mkdir()
+    (temp / 'php.ini').write_text(
+        f'display_errors=Off\nlog_errors=On\nextension_dir="{php.parent.as_posix()}/ext"\nextension=fileinfo\n',
+        encoding='ascii')
     with socket.socket() as sock:
         sock.bind(('127.0.0.1', 0))
         port = sock.getsockname()[1]
@@ -113,7 +150,8 @@ Require all granted
             expect(blocked_status == 403, f'blocked {path}: {blocked_status}')
         for path in ['/avatar/index.php', '/personal/index.php', '/authsalida/index.php',
                      '/actions/uploadAvatar/upload.php', '/actions/uploadImgPersonal/upload.php',
-                     '/actions/uploadAuthSalida/upload.php', '/actions/alicuotas/update.php']:
+                     '/actions/uploadAuthSalida/upload.php', '/actions/alicuotas/update.php',
+                     '/actions/uploadLegajo/upload.php', '/legajo/index.php']:
             expect(request(path)[0] == 401, 'protected ' + path)
         # Existing files must also pass through the controller.
         asset = root / 'personal' / 'security-check-existing.txt'
@@ -126,11 +164,11 @@ Require all granted
         expect(request('/actions/uploadAvatar/upload.php', {'X-Service-Key': 'b' * 64}, b'')[0] == 400, 'empty upload rejected')
         expect(request('/', {'Host': 'api.xenios.com.ar'})[0] == 403, 'public host requires HTTPS')
         expect(request('/actions/uploadAvatar/upload.php', {'X-Service-Key': 'a' * 64}, b'')[0] == 401, 'client secret cannot upload')
-        def upload(name, payload):
+        def upload(name, payload, endpoint='/actions/uploadAvatar/upload.php'):
             boundary = 'XeniosTestBoundary'
             multipart = (f'--{boundary}\r\nContent-Disposition: form-data; name="archivo"; filename="{name}"\r\n'
                          'Content-Type: image/png\r\n\r\n').encode() + payload + f'\r\n--{boundary}--\r\n'.encode()
-            return request('/actions/uploadAvatar/upload.php', {
+            return request(endpoint, {
                 'X-Service-Key': 'b' * 64,
                 'Content-Type': 'multipart/form-data; boundary=' + boundary,
             }, multipart)
@@ -138,6 +176,41 @@ Require all granted
         png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN3sAAAAASUVORK5CYII=')
         expect(upload('image.jpg', png)[0] == 400, 'content and extension mismatch rejected')
         expect(upload('image.png', png)[0] == 200, 'valid PNG accepted')
+        legajo_upload = '/actions/uploadLegajo/upload.php'
+        service = {'X-Service-Key': 'b' * 64}
+        expect(request(legajo_upload, service)[0] == 405, 'legajo upload POST only')
+        expect(request(legajo_upload, service, b'')[0] == 400, 'legajo missing file')
+        expect(upload('bad.pdf', b'<?php echo 1; ?>', legajo_upload)[0] == 400, 'legajo fake PDF')
+        expect(upload('bad.jpg', png, legajo_upload)[0] == 400, 'legajo MIME mismatch')
+        expect(upload('bad.php', png, legajo_upload)[0] == 400, 'legajo executable extension')
+        name = '19b1432a-35db-4525-aab5-ab392dcc394c.PNG'
+        status, _, body = upload(name, png, legajo_upload)
+        document = json.loads(body)
+        expect(status == 201 and document['archivo'] == name, 'legajo preserves web GUID filename')
+        expect(document['tamano'] == len(png), 'legajo reports stored size')
+        expect((temp / 'legajo' / name).read_bytes() == png, 'legajo stored outside public directory')
+        expect(upload(name, png, legajo_upload)[0] == 409, 'legajo refuses overwrite')
+        expect(request('/legajo/' + name)[0] == 401, 'legajo download requires service key')
+        expect(request('/legajo/' + name, key)[0] == 401, 'legajo client key is insufficient')
+        status, headers, body = request('/legajo/' + name, service)
+        expect(status == 200 and body == png, 'legajo exact download round trip')
+        expect(headers['Content-Type'] == 'image/png', 'legajo content type')
+        expect(headers['Content-Disposition'].startswith('attachment;'), 'legajo attachment disposition')
+        expect(headers['Cache-Control'] == 'private, no-store', 'legajo private response')
+        for invalid in ['../.env', '%2e%2e%2f.env', name + '/extra', 'file.php']:
+            expect(request('/legajo/index.php?f=' + invalid, service)[0] == 400, 'legajo rejects unsafe name')
+        expect(request('/legajo/' + '0' * 32 + '.pdf', service)[0] == 404, 'legajo missing document')
+        status, _, body = upload('scan.png', png, legajo_upload)
+        expect(status == 201 and json.loads(body)['archivo'] != 'scan.png', 'legajo generates safe name')
+        pdf = b'%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n'
+        status, _, body = upload('certificate.pdf', pdf, legajo_upload)
+        expect(status == 201, 'legajo accepts PDF')
+        pdf_name = json.loads(body)['archivo']
+        expect(request('/legajo/' + pdf_name, service)[2] == pdf, 'legajo PDF round trip')
+        # A large valid PDF proves the route overrides the general 11 MB request limit.
+        large_pdf = pdf + b' ' * (12 * 1024 * 1024)
+        expect(upload('large.pdf', large_pdf, legajo_upload)[0] == 201, 'legajo supports documents above 11 MB')
+        expect(not list((temp / 'legajo').glob('.upload-*')), 'legajo leaves no staging files')
         for _ in range(20):
             request('/xenios-movil/auth/login', {}, b'{}')
         expect(request('/xenios-movil/auth/login', {}, b'{}')[0] == 429, 'auth rate limit')

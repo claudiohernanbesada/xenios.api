@@ -1,6 +1,6 @@
 # Configuración
 
-Fuente recomendada: `/etc/xenios/api.env`, seleccionable por `XENIOS_MOVIL_ENV_FILE`. En desarrollo, `.env` de la raíz. El entorno del proceso prevalece sobre dotenv. `.env.example` es la plantilla sin secretos.
+Fuente recomendada: `/etc/xenios/api/.env`, seleccionable por `XENIOS_MOVIL_ENV_FILE`. En Windows, `.env` de la raíz para desarrollo. En Linux no se buscan archivos dentro del directorio publicado ni se usa la ruta anterior `/etc/xenios/api.env`. Una ruta explícita no disponible tampoco activa otra fuente. El entorno del proceso prevalece sobre dotenv. `.env.example` es la plantilla sin secretos.
 
 - `XENIOS_DB_*`: host, base, usuario y contraseña MySQL propios; base predeterminada xeniosDbX. No aplica migraciones.
 - `XENIOS_API_TOKEN`, `XENIOS_SERVICE_TOKEN`, `XENIOS_JWT_SECRET`, `XENIOS_WEB_BRIDGE_SECRET`: secretos independientes, aleatorios, al menos 32 bytes. Servicio y puente nunca se distribuyen al cliente.
