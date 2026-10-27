@@ -4,7 +4,9 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
 require_once dirname(__DIR__, 2) . '/_inc/credenciales.php';
-require_once dirname(__DIR__, 2) . '/_inc/api_tokens.php';
+require_once dirname(__DIR__, 2) . '/_inc/security.php';
+xenios_require_service_key();
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') { http_response_code(405); exit; }
 
 function responder(int $status, array $payload): void
 {
@@ -226,12 +228,12 @@ function consultar_alicuotas(array $empresa): ?array
         }
     }
 
-    if ($alicuotaIibb === null && ($default = env_o_null('SGI_ALICUOTA_IIBB_DEFAULT')) !== null) {
+    if ($alicuotaIibb === null && ($default = env_o_null('XENIOS_ALICUOTA_IIBB_DEFAULT')) !== null) {
         $alicuotaIibb = decimal_o_null($default);
         $fuentes[] = 'Default IIBB';
     }
 
-    if ($alicuotaGanancias === null && ($default = env_o_null('SGI_ALICUOTA_GANANCIAS_DEFAULT')) !== null) {
+    if ($alicuotaGanancias === null && ($default = env_o_null('XENIOS_ALICUOTA_GANANCIAS_DEFAULT')) !== null) {
         $alicuotaGanancias = decimal_o_null($default);
         $fuentes[] = 'Default Ganancias';
     }
@@ -249,7 +251,7 @@ function consultar_alicuotas(array $empresa): ?array
         'observaciones' => substr(
             $observaciones
                 ? implode(' ', array_unique($observaciones))
-                : 'Alícuotas obtenidas por CUIT y persistidas para uso del SGI.',
+                : 'Alícuotas obtenidas por CUIT y persistidas para uso del XENIOS.',
             0,
             500
         ),
@@ -300,7 +302,7 @@ function guid(): string
 }
 
 try {
-    if (!sgi_validar_api_token()) {
+    if (!xenios_validar_api_token()) {
         responder(401, ['success' => false, 'message' => 'Token inválido o ausente.']);
     }
 
@@ -359,5 +361,6 @@ try {
             : 'Alícuotas actualizadas correctamente.',
     ]);
 } catch (Throwable $e) {
-    responder(500, ['success' => false, 'message' => $e->getMessage()]);
+    error_log('[xenios-alicuotas] ' . $e->getMessage());
+    responder(500, ['success' => false, 'message' => 'Error interno del servidor']);
 }

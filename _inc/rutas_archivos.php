@@ -1,20 +1,21 @@
 <?php
 
-// Mapa de carpetas en disco y URLs públicas — HTTPS en api.raei.com.ar/{repo}
+// Mapa de carpetas en disco y URLs públicas — HTTPS en api.xenios.com.ar/{repo}
 
 declare(strict_types=1);
+require_once __DIR__ . '/env_loader.php';
 
 
 
 /**
 
- * Producción: archivos bajo apiReg, no bajo el vhost apiSgiRAEI donde vive sgi-movil.
+ * Producción: archivos bajo apiReg, no bajo el vhost apixenios donde vive xenios-movil.
 
- * Variables de entorno opcionales: SGI_AVATAR_DIR, SGI_AUTHSALIDA_DIR, SGI_PERSONAL_DIR
+ * Variables de entorno opcionales: XENIOS_AVATAR_DIR, XENIOS_AUTHSALIDA_DIR, XENIOS_PERSONAL_DIR
 
  */
 
-function sgi_dir_absoluta_api_reg(string $carpeta, ?string $envVar = null): ?string
+function xenios_dir_absoluta_api_reg(string $carpeta, ?string $envVar = null): ?string
 
 {
 
@@ -30,7 +31,7 @@ function sgi_dir_absoluta_api_reg(string $carpeta, ?string $envVar = null): ?str
 
     }
 
-    $prod = '/var/www/vhost/apiReg/www/' . trim($carpeta, '/');
+    $prod = '/var/lib/xenios-api/' . trim($carpeta, '/');
 
     if (is_dir($prod)) {
 
@@ -46,25 +47,25 @@ function sgi_dir_absoluta_api_reg(string $carpeta, ?string $envVar = null): ?str
 
 
 
-$sgiAvatarDirAbsoluta = sgi_dir_absoluta_api_reg('avatar', 'SGI_AVATAR_DIR');
+$xeniosAvatarDirAbsoluta = xenios_dir_absoluta_api_reg('avatar', 'XENIOS_AVATAR_DIR');
 
-$sgiAuthsalidaDirAbsoluta = sgi_dir_absoluta_api_reg('authsalida', 'SGI_AUTHSALIDA_DIR');
+$xeniosAuthsalidaDirAbsoluta = xenios_dir_absoluta_api_reg('authsalida', 'XENIOS_AUTHSALIDA_DIR');
 
-$sgiPersonalDirAbsoluta = sgi_dir_absoluta_api_reg('personal', 'SGI_PERSONAL_DIR');
+$xeniosPersonalDirAbsoluta = xenios_dir_absoluta_api_reg('personal', 'XENIOS_PERSONAL_DIR');
 
 
 
 /** @var array<string, array{dir: string, dir_absoluta?: string|null, url: string, url_respaldo?: list<string>}> */
 
-$GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
+$GLOBALS['XENIOS_RUTAS_ARCHIVOS'] = [
 
     'avatar_usuario' => [
 
         'dir' => '/avatar/',
 
-        'dir_absoluta' => $sgiAvatarDirAbsoluta,
+        'dir_absoluta' => $xeniosAvatarDirAbsoluta,
 
-        'url' => 'https://api.raei.com.ar/avatar',
+        'url' => 'https://api.xenios.com.ar/avatar',
 
     ],
 
@@ -72,9 +73,9 @@ $GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
 
         'dir' => '/personal/',
 
-        'dir_absoluta' => $sgiPersonalDirAbsoluta,
+        'dir_absoluta' => $xeniosPersonalDirAbsoluta,
 
-        'url' => 'https://api.raei.com.ar/personal',
+        'url' => 'https://api.xenios.com.ar/personal',
 
     ],
 
@@ -82,9 +83,9 @@ $GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
 
         'dir' => '/authsalida/',
 
-        'dir_absoluta' => $sgiAuthsalidaDirAbsoluta,
+        'dir_absoluta' => $xeniosAuthsalidaDirAbsoluta,
 
-        'url' => 'https://api.raei.com.ar/authsalida',
+        'url' => 'https://api.xenios.com.ar/authsalida',
 
     ],
 
@@ -92,17 +93,17 @@ $GLOBALS['SGI_RUTAS_ARCHIVOS'] = [
 
 
 
-function sgi_rutas_archivos(): array
+function xenios_rutas_archivos(): array
 
 {
 
-    return $GLOBALS['SGI_RUTAS_ARCHIVOS'];
+    return $GLOBALS['XENIOS_RUTAS_ARCHIVOS'];
 
 }
 
 
 
-function sgi_api_site_root(): string
+function xenios_api_site_root(): string
 
 {
 
@@ -112,7 +113,7 @@ function sgi_api_site_root(): string
 
 
 
-function sgi_document_root(): string
+function xenios_document_root(): string
 
 {
 
@@ -122,19 +123,19 @@ function sgi_document_root(): string
 
 
 
-function sgi_url_es_sitio_api(string $baseUrl): bool
+function xenios_url_es_sitio_api(string $baseUrl): bool
 
 {
 
     $host = parse_url($baseUrl, PHP_URL_HOST);
 
-    return is_string($host) && strcasecmp($host, 'api.raei.com.ar') === 0;
+    return is_string($host) && strcasecmp($host, 'api.xenios.com.ar') === 0;
 
 }
 
 
 
-function sgi_url_usa_https(string $baseUrl): bool
+function xenios_url_usa_https(string $baseUrl): bool
 
 {
 
@@ -146,11 +147,11 @@ function sgi_url_usa_https(string $baseUrl): bool
 
 
 
-function sgi_ruta_fisica(string $clave): string
+function xenios_ruta_fisica(string $clave): string
 
 {
 
-    $rutas = sgi_rutas_archivos();
+    $rutas = xenios_rutas_archivos();
 
     if (!isset($rutas[$clave]['dir'])) {
 
@@ -166,17 +167,17 @@ function sgi_ruta_fisica(string $clave): string
 
     }
 
-    return sgi_document_root() . $rel;
+    return xenios_document_root() . $rel;
 
 }
 
 
 
-function sgi_ruta_url(string $clave): string
+function xenios_ruta_url(string $clave): string
 
 {
 
-    $rutas = sgi_rutas_archivos();
+    $rutas = xenios_rutas_archivos();
 
     if (!isset($rutas[$clave]['url'])) {
 
@@ -186,9 +187,9 @@ function sgi_ruta_url(string $clave): string
 
     $url = rtrim((string) $rutas[$clave]['url'], '/');
 
-    if (!sgi_url_es_sitio_api($url) || !sgi_url_usa_https($url)) {
+    if (!xenios_url_es_sitio_api($url) || !xenios_url_usa_https($url)) {
 
-        throw new InvalidArgumentException("La URL del repo debe ser https://api.raei.com.ar: {$url}");
+        throw new InvalidArgumentException("La URL del repo debe ser https://api.xenios.com.ar: {$url}");
 
     }
 
@@ -198,11 +199,11 @@ function sgi_ruta_url(string $clave): string
 
 
 
-function sgi_rutas_respaldo(string $clave): array
+function xenios_rutas_respaldo(string $clave): array
 
 {
 
-    $rutas = sgi_rutas_archivos();
+    $rutas = xenios_rutas_archivos();
 
     $bases = $rutas[$clave]['url_respaldo'] ?? [];
 
@@ -224,7 +225,7 @@ function sgi_rutas_respaldo(string $clave): array
 
         $normalized = rtrim(trim($base), '/');
 
-        if (sgi_url_es_sitio_api($normalized) && sgi_url_usa_https($normalized)) {
+        if (xenios_url_es_sitio_api($normalized) && xenios_url_usa_https($normalized)) {
 
             $out[] = $normalized;
 
@@ -238,25 +239,25 @@ function sgi_rutas_respaldo(string $clave): array
 
 
 
-function sgi_url_archivo(string $clave, string $nombreArchivo): string
+function xenios_url_archivo(string $clave, string $nombreArchivo): string
 
 {
 
-    return sgi_ruta_url($clave) . '/' . rawurlencode(basename($nombreArchivo));
+    return xenios_ruta_url($clave) . '/' . rawurlencode(basename($nombreArchivo));
 
 }
 
 
 
-function sgi_ruta_fisica_relativa_api(string $clave): string
+function xenios_ruta_fisica_relativa_api(string $clave): string
 
 {
 
-    $rutas = sgi_rutas_archivos();
+    $rutas = xenios_rutas_archivos();
 
     $rel = ltrim((string) ($rutas[$clave]['dir'] ?? ''), '/\\');
 
-    $root = sgi_api_site_root();
+    $root = xenios_api_site_root();
 
     if ($rel === '' || $rel === '/') {
 
@@ -272,11 +273,11 @@ function sgi_ruta_fisica_relativa_api(string $clave): string
 
 
 
-function sgi_ruta_fisica_escritura(string $clave): string
+function xenios_ruta_fisica_escritura(string $clave): string
 
 {
 
-    $rutas = sgi_rutas_archivos();
+    $rutas = xenios_rutas_archivos();
 
     if (!isset($rutas[$clave]['dir'])) {
 
@@ -296,15 +297,15 @@ function sgi_ruta_fisica_escritura(string $clave): string
 
 
 
-    return sgi_ruta_fisica_relativa_api($clave);
+    return xenios_ruta_fisica_relativa_api($clave);
 
 }
 
 
 
-/** Carpetas legacy bajo el vhost apiSgiRAEI (subidas antiguas). */
+/** Carpetas legacy bajo el vhost apixenios (subidas antiguas). */
 
-function sgi_ruta_legacy_api_sgi(string $clave): ?string
+function xenios_ruta_legacy_api_xenios(string $clave): ?string
 
 {
 
@@ -328,17 +329,17 @@ function sgi_ruta_legacy_api_sgi(string $clave): ?string
 
 
 
-    return sgi_api_site_root() . DIRECTORY_SEPARATOR . $rel;
+    return xenios_api_site_root() . DIRECTORY_SEPARATOR . $rel;
 
 }
 
 
 
-function sgi_rutas_fisicas_candidatas(string $clave): array
+function xenios_rutas_fisicas_candidatas(string $clave): array
 
 {
 
-    $rutas = sgi_rutas_archivos();
+    $rutas = xenios_rutas_archivos();
 
     if (!isset($rutas[$clave]['dir'])) {
 
@@ -362,13 +363,13 @@ function sgi_rutas_fisicas_candidatas(string $clave): array
 
 
 
-    $candidatas[] = sgi_ruta_fisica_escritura($clave);
+    $candidatas[] = xenios_ruta_fisica_escritura($clave);
 
-    $candidatas[] = sgi_ruta_fisica($clave);
+    $candidatas[] = xenios_ruta_fisica($clave);
 
 
 
-    $legacy = sgi_ruta_legacy_api_sgi($clave);
+    $legacy = xenios_ruta_legacy_api_xenios($clave);
 
     if ($legacy !== null) {
 
@@ -384,7 +385,7 @@ function sgi_rutas_fisicas_candidatas(string $clave): array
 
 
 
-function sgi_path_archivo_local(string $clave, string $nombreArchivo): ?string
+function xenios_path_archivo_local(string $clave, string $nombreArchivo): ?string
 
 {
 
@@ -396,7 +397,7 @@ function sgi_path_archivo_local(string $clave, string $nombreArchivo): ?string
 
     }
 
-    foreach (sgi_rutas_fisicas_candidatas($clave) as $dir) {
+    foreach (xenios_rutas_fisicas_candidatas($clave) as $dir) {
 
         $path = rtrim($dir, '/\\') . DIRECTORY_SEPARATOR . $name;
 
@@ -414,11 +415,11 @@ function sgi_path_archivo_local(string $clave, string $nombreArchivo): ?string
 
 
 
-function sgi_asegurar_directorio(string $clave): string
+function xenios_asegurar_directorio(string $clave): string
 
 {
 
-    $dir = sgi_ruta_fisica_escritura($clave);
+    $dir = xenios_ruta_fisica_escritura($clave);
 
     if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
 

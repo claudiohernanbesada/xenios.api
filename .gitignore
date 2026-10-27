@@ -1,0 +1,9 @@
+.env
+.env.*
+!.env.example
+_private/
+firebase-service-account.json
+*.pem
+*.key
+xenios-movil/logs/*
+!xenios-movil/logs/.gitignore

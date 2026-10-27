@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-function sgi_cargar_env(?string $path = null): void
+function xenios_cargar_env(?string $path = null): void
 {
     static $loaded = [];
 
@@ -38,7 +38,7 @@ function sgi_cargar_env(?string $path = null): void
         $key = trim(substr($line, 0, $separatorPosition));
         $value = trim(substr($line, $separatorPosition + 1));
 
-        if ($key === '') {
+        if ($key === '' || getenv($key) !== false) {
             continue;
         }
 
@@ -54,4 +54,4 @@ function sgi_cargar_env(?string $path = null): void
     }
 }
 
-sgi_cargar_env();
+xenios_cargar_env(getenv('XENIOS_MOVIL_ENV_FILE') ?: (is_file('/etc/xenios/api.env') ? '/etc/xenios/api.env' : null));

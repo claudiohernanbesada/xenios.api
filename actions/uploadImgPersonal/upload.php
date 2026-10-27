@@ -1,31 +1,15 @@
 <?php
-/**
- * Subida de foto de Personal (compatible con SGI web).
- * Guarda en /personal/ del sitio api.raei.com.ar
- */
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
-    exit;
-}
-
-if (!isset($_FILES['archivo']) || $_FILES['archivo']['error'] !== UPLOAD_ERR_OK) {
-    http_response_code(400);
-    echo 'No se recibió ningún archivo válido.';
-    exit;
-}
-
-$directorio = '/personal/';
-$nombre = basename($_FILES['archivo']['name']);
-$tmp = $_FILES['archivo']['tmp_name'];
-$destino = $_SERVER['DOCUMENT_ROOT'] . $directorio . $nombre;
-
-if (!is_dir($_SERVER['DOCUMENT_ROOT'] . $directorio)) {
-    mkdir($_SERVER['DOCUMENT_ROOT'] . $directorio, 0755, true);
-}
-
-if (move_uploaded_file($tmp, $destino)) {
-    echo 'Archivo recibido y guardado como: ' . $nombre;
-} else {
+declare(strict_types=1);
+require_once dirname(__DIR__, 2) . '/_inc/security.php';
+xenios_require_service_key();
+require_once dirname(__DIR__, 2) . '/xenios-movil/lib/avatar.php';
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') { http_response_code(405); exit; }
+try {
+    $name = save_uploaded_foto($_FILES['archivo'] ?? [], 'foto_personal');
+    if ($name === null) { http_response_code(400); exit('Imagen inválida.'); }
+    echo 'Archivo recibido y guardado como: ' . $name;
+} catch (Throwable $e) {
+    error_log('[xenios-upload] ' . $e->getMessage());
     http_response_code(500);
-    echo 'Error al mover el archivo.';
+    echo 'No se pudo guardar el archivo.';
 }

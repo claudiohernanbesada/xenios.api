@@ -1,3 +1,27 @@
-<FilesMatch "^\.env">
+Options -Indexes -MultiViews
+ServerSignature Off
+LimitRequestBody 11534336
+RewriteEngine On
+RewriteOptions InheritDownBefore
+RewriteRule (^|/)\. - [F,L]
+# TLS terminates on Apache. Configure trusted proxies in the vhost if needed.
+RewriteCond %{HTTPS} !=on
+RewriteCond %{HTTP_HOST} !^(localhost|127\.0\.0\.1)(:[0-9]+)?$ [NC]
+RewriteRule ^ - [F,L]
+RewriteCond %{REQUEST_URI} ^/(?:_inc|_private|deploy|tests|tools|docs)(?:/|$) [NC,OR]
+RewriteCond %{REQUEST_URI} ^/xenios-movil/(?:lib|tools|logs|docs)(?:/|$) [NC,OR]
+RewriteCond %{REQUEST_URI} ^/xenios-movil/(?:config\.php|procesar_alertas_push\.php)$ [NC]
+RewriteRule ^ - [F,L]
+RewriteRule ^(?:_inc|_private|deploy|tests|tools|docs)(?:/|$) - [F,L,NC]
+RewriteRule ^xenios-movil/(?:lib|tools|logs|docs)(?:/|$) - [F,L,NC]
+RewriteRule ^xenios-movil/(?:config\.php|procesar_alertas_push\.php)$ - [F,L,NC]
+<FilesMatch "(^\.|\.(?:md|ps1|log|sql|ini|bak|key|pem)$|firebase-service-account.*\.json$)">
     Require all denied
 </FilesMatch>
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set Referrer-Policy "no-referrer"
+    Header always unset X-Powered-By
+    Header always set Strict-Transport-Security "max-age=31536000" "expr=%{HTTPS} == 'on'"
+</IfModule>

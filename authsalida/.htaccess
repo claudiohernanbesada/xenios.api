@@ -1,11 +1,4 @@
-# Enruta /authsalida/{archivo} a index.php (rutas en _inc/rutas_archivos.php)
-<IfModule mod_authz_core.c>
-    Require all granted
-</IfModule>
-
-<IfModule mod_rewrite.c>
-    RewriteEngine On
-    RewriteBase /authsalida/
-    RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteRule ^(.+)$ index.php?f=$1 [L,QSA]
-</IfModule>
+Options -Indexes -MultiViews
+RewriteEngine On
+RewriteRule ^index\.php$ - [L]
+RewriteRule ^(.+)$ index.php?f=$1 [END,QSA]
