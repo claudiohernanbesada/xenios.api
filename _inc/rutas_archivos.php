@@ -47,9 +47,9 @@ function xenios_dir_absoluta_api_reg(string $carpeta, ?string $envVar = null): ?
 
 
 
-$xeniosAvatarDirAbsoluta = xenios_dir_absoluta_api_reg('avatar', 'XENIOS_AVATAR_DIR');
+$xeniosAvatarDirAbsoluta = rtrim(trim(getenv('XENIOS_AVATAR_DIR') ?: '/var/storage/avatar'), '/\\');
 
-$xeniosAuthsalidaDirAbsoluta = xenios_dir_absoluta_api_reg('authsalida', 'XENIOS_AUTHSALIDA_DIR');
+$xeniosAuthsalidaDirAbsoluta = rtrim(trim(getenv('XENIOS_AUTHSALIDA_DIR') ?: '/var/storage/authSalida'), '/\\');
 
 $xeniosPersonalDirAbsoluta = xenios_dir_absoluta_api_reg('personal', 'XENIOS_PERSONAL_DIR');
 
@@ -58,6 +58,12 @@ $xeniosPersonalDirAbsoluta = xenios_dir_absoluta_api_reg('personal', 'XENIOS_PER
 /** @var array<string, array{dir: string, dir_absoluta?: string|null, url: string, url_respaldo?: list<string>}> */
 
 $GLOBALS['XENIOS_RUTAS_ARCHIVOS'] = [
+
+    'imagen_articulo' => [
+        'dir' => '/articulos/',
+        'dir_absoluta' => rtrim(trim(getenv('XENIOS_ARTICULOS_DIR') ?: '/var/storage/articulos'), '/\\'),
+        'url' => 'https://api.xenios.com.ar/articulos',
+    ],
 
     'avatar_usuario' => [
 

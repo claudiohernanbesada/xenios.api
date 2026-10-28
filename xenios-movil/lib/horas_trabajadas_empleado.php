@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/registro_personal_jornadas.php';
+require_once __DIR__ . '/tenant.php';
 
 /** Límite horario extra semana (18:00) y sábado (13:00). */
 const HT_LIMITE_EXTRA_SEMANA = '18:00:00';
@@ -24,6 +25,7 @@ const HT_MAXIMO_HORAS_EXTRAS_DIA = 3;
  */
 function horas_trabajadas_build_resumen(PDO $pdo, array $personal, string $desde, string $hasta, array $config = []): array
 {
+    xenios_tenant_for_personal($pdo, (string) ($personal['Id'] ?? ''));
     $desdeDt = DateTimeImmutable::createFromFormat('Y-m-d', $desde);
     $hastaDt = DateTimeImmutable::createFromFormat('Y-m-d', $hasta);
     if ($desdeDt === false || $hastaDt === false || $desdeDt > $hastaDt) {
@@ -58,6 +60,7 @@ function horas_trabajadas_enriquecer_personal(PDO $pdo, array $personal): array
     if ($id === '') {
         return $personal;
     }
+    xenios_tenant_for_personal($pdo, $id);
     if (isset($personal['TipoContratacionNombre'], $personal['HorasExtras'])) {
         return $personal;
     }
@@ -70,7 +73,7 @@ function horas_trabajadas_enriquecer_personal(PDO $pdo, array $personal): array
          FROM Personal p
          LEFT JOIN TipoContratacion tc ON tc.Id = p.TipoContratacionId
          LEFT JOIN Area a ON a.Id = p.ArealId
-         WHERE p.Id = :id LIMIT 1'
+         WHERE ' . xenios_tenant_sql($pdo, 'p') . ' AND p.Id = :id LIMIT 1'
     );
     $stmt->execute(['id' => $id]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -115,6 +118,7 @@ function horas_trabajadas_normalizar_periodo(DateTimeImmutable $desde, DateTimeI
  */
 function horas_trabajadas_cargar_datos(PDO $pdo, array $empleado, array $periodo): array
 {
+    xenios_tenant_for_personal($pdo, (string) ($empleado['Id'] ?? ''));
     $personalId = (string) ($empleado['Id'] ?? '');
     $legajo = (int) ($empleado['Legajo'] ?? 0);
     $desde = $periodo['desde']->format('Y-m-d');
@@ -131,7 +135,7 @@ function horas_trabajadas_cargar_datos(PDO $pdo, array $empleado, array $periodo
         $claves = normalizar_legajo_claves($legajo);
         $placeholders = implode(',', array_fill(0, count($claves), '?'));
         $sql = "SELECT Fecha FROM FichadasGlobal
-                WHERE Estado = 1 AND Fecha >= ? AND Fecha <= ? AND Legajo IN ($placeholders)
+                WHERE " . xenios_tenant_sql($pdo) . " AND Estado = 1 AND Fecha >= ? AND Fecha <= ? AND Legajo IN ($placeholders)
                 ORDER BY Fecha ASC";
         $params = array_merge([$fi, $ff], $claves);
         $stmt = $pdo->prepare($sql);
@@ -144,7 +148,7 @@ function horas_trabajadas_cargar_datos(PDO $pdo, array $empleado, array $periodo
         }
     }
 
-    $turnosStmt = $pdo->query('SELECT Entrada, Salida FROM Turnos WHERE Estado = 1');
+    $turnosStmt = $pdo->query('SELECT Entrada, Salida FROM Turnos WHERE ' . xenios_tenant_sql($pdo) . ' AND Estado = 1');
     $turnos = [];
     foreach ($turnosStmt->fetchAll(PDO::FETCH_ASSOC) as $t) {
         $turnos[] = [
@@ -155,7 +159,7 @@ function horas_trabajadas_cargar_datos(PDO $pdo, array $empleado, array $periodo
 
     $feriados = [];
     $stmt = $pdo->prepare(
-        'SELECT Fecha FROM PersonalFeriados WHERE Estado = 1 AND Fecha >= :d AND Fecha <= :h'
+        'SELECT Fecha FROM PersonalFeriados WHERE ' . xenios_tenant_sql($pdo) . ' AND Estado = 1 AND Fecha >= :d AND Fecha <= :h'
     );
     $stmt->execute(['d' => $desde, 'h' => $hasta]);
     foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $f) {
@@ -170,7 +174,7 @@ function horas_trabajadas_cargar_datos(PDO $pdo, array $empleado, array $periodo
                     COALESCE(m.RequiereRecupero, 1) AS RequiereRecupero
              FROM AuthSalida a
              LEFT JOIN AuthSalidaMotivos m ON m.Id = a.MotivoId
-             WHERE a.Estado = 1 AND a.PersonalId = :pid AND a.Fecha <= :h AND a.FechaRegreso >= :d'
+             WHERE ' . xenios_tenant_sql($pdo, 'a') . ' AND a.Estado = 1 AND a.PersonalId = :pid AND a.Fecha <= :h AND a.FechaRegreso >= :d'
         );
         $stmt->execute(['pid' => $personalId, 'd' => $desde, 'h' => $hasta]);
         $auths = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -190,7 +194,7 @@ function horas_trabajadas_cargar_datos(PDO $pdo, array $empleado, array $periodo
         $stmt = $pdo->prepare(
             'SELECT h.Fecha, h.Desde, h.Hasta, m.Motivo, m.Estado AS MotivoEstado
              FROM HoraExtraManual h LEFT JOIN HoraExtraManualMotivo m ON m.Id = h.MotivoId
-             WHERE h.Estado = 1 AND h.PersonalId = :pid AND h.Fecha >= :d AND h.Fecha <= :h'
+             WHERE ' . xenios_tenant_sql($pdo, 'h') . ' AND h.Estado = 1 AND h.PersonalId = :pid AND h.Fecha >= :d AND h.Fecha <= :h'
         );
         $stmt->execute(['pid' => $personalId, 'd' => $desde, 'h' => $hasta]);
         $extrasManuales[$personalId] = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -225,7 +229,7 @@ function horas_trabajadas_licencias_rangos(
     $sql = 'SELECT pl.Desde, pl.Hasta, pl.Comentarios, m.Codigo, m.Resta
             FROM PersonalLicencias pl
             INNER JOIN PersonalLicenciasMotivo m ON m.Id = pl.PersonalLicenciasMotivoId
-            WHERE pl.Estado = 1 AND pl.PersonalId = :pid
+            WHERE ' . xenios_tenant_sql($pdo, 'pl') . ' AND pl.Estado = 1 AND pl.PersonalId = :pid
               AND pl.Desde <= :hasta AND pl.Hasta >= :desde';
     if ($tipo === 'cgs') {
         $sql .= " AND m.Resta = 0 AND m.Codigo <> 'VAC'";

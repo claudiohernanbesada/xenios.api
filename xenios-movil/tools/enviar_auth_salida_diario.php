@@ -46,9 +46,14 @@ require_once dirname(__DIR__) . '/lib/db.php';
 require_once dirname(__DIR__) . '/lib/auth_salida_daily_report.php';
 
 $pdo = db_connect($config);
-$rows = auth_salida_daily_report_rows($pdo, $date);
-$licenseRows = auth_salida_daily_report_license_rows($pdo, $date);
 $recipients = auth_salida_daily_report_recipients($pdo);
+$reports = [];
+foreach (array_unique(array_column($recipients, 'EmpresaTenantId')) as $hotel) {
+    $reports[$hotel] = [
+        'rows' => auth_salida_daily_report_rows($pdo, $date, $hotel),
+        'licenseRows' => auth_salida_daily_report_license_rows($pdo, $date, $hotel),
+    ];
+}
 
 if ($dryRun) {
     echo json_encode([
@@ -56,8 +61,7 @@ if ($dryRun) {
         'fecha' => $date->format('Y-m-d'),
         'subject' => auth_salida_daily_report_subject($date),
         'recipients' => array_column($recipients, 'mail'),
-        'rows' => $rows,
-        'licenseRows' => $licenseRows,
+        'reportsByHotel' => $reports,
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n";
     flock($lock, LOCK_UN);
     fclose($lock);

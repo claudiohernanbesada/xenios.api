@@ -72,6 +72,15 @@ try {
 
 // Enrutador: método + path → handler correspondiente
 try {
+    if (str_starts_with($path, '/reportes/')) {
+        // La cabecera es interna y estas rutas ya exigen X-Service-Key.
+        $empresa = (string) ($_SERVER['HTTP_X_XENIOS_EMPRESA_ID'] ?? '');
+        try { xenios_tenant_select($pdo, $empresa); }
+        catch (InvalidArgumentException) { json_response(['message' => 'Hotel requerido'], 403, $config); exit; }
+        $hotel = $pdo->prepare('SELECT h.Id FROM Hoteles h INNER JOIN PlanesHoteles p ON p.Id = h.PlanHotelId WHERE h.Id = ? AND h.Activa = 1 AND p.Activo = 1');
+        $hotel->execute([$empresa]);
+        if (!$hotel->fetchColumn()) { json_response(['message' => 'Hotel no disponible'], 403, $config); exit; }
+    }
     match (true) {
         $path === '/inout-seguridad' || str_starts_with($path, '/inout-seguridad/') => handle_inout_seguridad($pdo, $config, $path, $method),
         $method === 'GET' && $path === '/app-version' => handle_app_version($pdo, $config),
@@ -523,11 +532,17 @@ function handle_avatar_upload(PDO $pdo, array $config): void
         return;
     }
 
-    delete_archivo_fisico(XENIOS_AVATAR_REPO, $auth['user']['ImgPerfil'] ?? null);
     $stmt = $pdo->prepare(
         'UPDATE Usuarios SET ImgPerfil = :img, dateUpdate = NOW() WHERE Id = :id'
     );
-    $stmt->execute(['img' => $fileName, 'id' => $auth['user']['Id']]);
+    try { $stmt->execute(['img' => $fileName, 'id' => $auth['user']['Id']]); }
+    catch (Throwable $exception) {
+        try { delete_unused_avatar($pdo, $fileName); }
+        catch (Throwable $cleanup) { error_log('[xenios-avatar-cleanup] ' . $cleanup->getMessage()); }
+        throw $exception;
+    }
+    try { delete_unused_avatar($pdo, $auth['user']['ImgPerfil'] ?? null); }
+    catch (Throwable $cleanup) { error_log('[xenios-avatar-cleanup] ' . $cleanup->getMessage()); }
     $auth['user']['ImgPerfil'] = $fileName;
 
     json_response([
@@ -563,11 +578,12 @@ function handle_avatar_delete(PDO $pdo, array $config): void
     $auth = require_auth($pdo, $config);
     $personal = fetch_personal_by_mail($pdo, (string) $auth['user']['Mail']);
 
-    delete_archivo_fisico(XENIOS_AVATAR_REPO, $auth['user']['ImgPerfil'] ?? null);
     $stmt = $pdo->prepare(
         'UPDATE Usuarios SET ImgPerfil = NULL, dateUpdate = NOW() WHERE Id = :id'
     );
     $stmt->execute(['id' => $auth['user']['Id']]);
+    try { delete_unused_avatar($pdo, $auth['user']['ImgPerfil'] ?? null); }
+    catch (Throwable $cleanup) { error_log('[xenios-avatar-cleanup] ' . $cleanup->getMessage()); }
     $auth['user']['ImgPerfil'] = null;
 
     json_response([
@@ -1020,10 +1036,13 @@ function handle_novedades_enviar(PDO $pdo, array $config): void
         json_response(['message' => 'from (GUID del remitente) es requerido'], 400, $config);
         return;
     }
-    if (novedades_usuario_activo($pdo, $fromRaw) === null) {
+    $remitente = novedades_usuario_activo($pdo, $fromRaw);
+    if ($remitente === null) {
         json_response(['message' => 'Remitente (from) no encontrado o inactivo'], 400, $config);
         return;
     }
+
+    xenios_tenant_select($pdo, (string) $remitente['EmpresaTenantId']);
 
     $usuarioIdsRaw = $body['usuarioIds'] ?? null;
     $usuarioIds = null;

@@ -15,26 +15,18 @@ if ($to === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
 $config = require dirname(__DIR__) . '/config.php';
 require_once dirname(__DIR__) . '/lib/password_reset.php';
 
-$pr = password_reset_config($config);
-$smtp = $pr['smtp'] ?? [];
-
-$status = [
-    'host' => (string) ($smtp['host'] ?? ''),
-    'port' => (int) ($smtp['port'] ?? 0),
-    'username' => (string) ($smtp['username'] ?? ''),
-    'passwordConfigured' => trim((string) ($smtp['password'] ?? '')) !== '',
-    'ssl' => filter_var($smtp['ssl'] ?? false, FILTER_VALIDATE_BOOLEAN),
-    'encryption' => (string) ($smtp['encryption'] ?? ''),
-    'from' => (string) ($pr['mail_from'] ?? ''),
-    'displayName' => (string) ($pr['mail_from_name'] ?? ''),
-];
-
-echo json_encode($status, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n";
-
-if (!$status['passwordConfigured']) {
-    fwrite(STDERR, "XENIOS_SMTP_PASSWORD no esta configurado.\n");
+require_once dirname(__DIR__) . '/lib/db.php';
+$pdo = db_connect($config);
+$user = password_reset_find_user_by_mail($pdo, $to);
+if ($user === null) {
+    fwrite(STDERR, "La prueba requiere el correo de un usuario activo de un hotel.\n");
     exit(2);
 }
+$pr = password_reset_config($config);
+$pr['hotel_mail_config'] = $config;
+$pr['hotel_mail_scope'] = $user;
+echo json_encode(['hotelId' => $user['EmpresaTenantId'], 'sucursalId' => $user['SucursalId'],
+    'mailer' => 'Configuracion de correo por hotel'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n";
 
 $link = rtrim((string) $pr['public_base_url'], '/') . '/?token=prueba-smtp';
 $ok = password_reset_send_mail($pr, $to, 'Prueba IT', $link);

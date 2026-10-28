@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/registro_personal_jornadas.php';
+require_once __DIR__ . '/tenant.php';
 
 /**
  * Calendario de asistencia de un empleado entre dos fechas (lógica ReportsController, un personal).
@@ -12,6 +13,7 @@ require_once __DIR__ . '/registro_personal_jornadas.php';
  */
 function asistencia_build_calendario(PDO $pdo, array $personal, string $desde, string $hasta): array
 {
+    xenios_tenant_for_personal($pdo, (string) ($personal['Id'] ?? ''));
     $desdeDt = DateTimeImmutable::createFromFormat('!Y-m-d', $desde);
     $hastaDt = DateTimeImmutable::createFromFormat('!Y-m-d', $hasta);
     if ($desdeDt === false || $hastaDt === false || $desdeDt > $hastaDt) {
@@ -194,7 +196,7 @@ function asistencia_armar_dia(
 function asistencia_cargar_turnos(PDO $pdo): array
 {
     $stmt = $pdo->query(
-        'SELECT Entrada, Salida FROM Turnos WHERE Estado = 1'
+        'SELECT Entrada, Salida FROM Turnos WHERE ' . xenios_tenant_sql($pdo) . ' AND Estado = 1'
     );
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     $turnos = [];
@@ -220,7 +222,7 @@ function asistencia_cargar_fichadas(
     $claves = normalizar_legajo_claves($legajo);
     $placeholders = implode(',', array_fill(0, count($claves), '?'));
     $sql = "SELECT Fecha, EsCargaManual FROM FichadasGlobal
-            WHERE Estado = 1
+            WHERE " . xenios_tenant_sql($pdo) . " AND Estado = 1
               AND Fecha >= ?
               AND Fecha <= ?
               AND Legajo IN ($placeholders)
@@ -255,7 +257,7 @@ function asistencia_cargar_auth_salida(
     $stmt = $pdo->prepare(
         'SELECT Fecha, HoraSalida, HoraRegreso, FechaHoraSalidaEfectiva, FechaHoraRegresoEfectiva
          FROM AuthSalida
-         WHERE Estado = 1 AND PersonalId = :pid AND Fecha >= :desde AND Fecha <= :hasta'
+         WHERE ' . xenios_tenant_sql($pdo) . ' AND Estado = 1 AND PersonalId = :pid AND Fecha >= :desde AND Fecha <= :hasta'
     );
     $stmt->execute([
         'pid' => $personalId,
@@ -283,7 +285,7 @@ function asistencia_cargar_licencias_por_dia(
         'SELECT pl.Desde, pl.Hasta, m.Codigo, m.Motivo
          FROM PersonalLicencias pl
          INNER JOIN PersonalLicenciasMotivo m ON m.Id = pl.PersonalLicenciasMotivoId
-         WHERE pl.Estado = 1
+         WHERE ' . xenios_tenant_sql($pdo, 'pl') . ' AND pl.Estado = 1
            AND pl.PersonalId = :pid
            AND pl.Desde <= :hasta
            AND pl.Hasta >= :desde'
@@ -325,7 +327,7 @@ function asistencia_cargar_feriados(
 ): array {
     $stmt = $pdo->prepare(
         'SELECT Fecha, Descripcion FROM PersonalFeriados
-         WHERE Estado = 1 AND Fecha >= :desde AND Fecha <= :hasta'
+         WHERE ' . xenios_tenant_sql($pdo) . ' AND Estado = 1 AND Fecha >= :desde AND Fecha <= :hasta'
     );
     $stmt->execute([
         'desde' => $desde->format('Y-m-d'),

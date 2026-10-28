@@ -6,6 +6,8 @@ $config = require $base . '/config.php';
 require_once $base . '/lib/db.php';
 require_once $base . '/lib/reportes_xenios.php';
 $pdo = db_connect($config);
+$hotelPrueba = $pdo->query('SELECT EmpresaTenantId FROM Personal LIMIT 1')->fetchColumn();
+xenios_tenant_select($pdo, (string) $hotelPrueba);
 // Solo se modifica una tabla temporal de esta conexion; los datos reales no se alteran.
 $pdo->exec('CREATE TEMPORARY TABLE Personal AS SELECT * FROM Personal LIMIT 1');
 try {

@@ -10,6 +10,22 @@ const HEMP_FECHA_INICIO = '2026-10-01';
 /** @return array{ok:bool,desde:string,hasta:string,usuariosEvaluados:int,enviados:int,omitidos:int,errores:int,detalle:list<array<string,mixed>>} */
 function horas_extra_motivo_pendientes_enviar(PDO $pdo, array $config): array
 {
+    $contexts = xenios_tenant_contexts();
+    if (!isset($contexts[$pdo])) {
+        // El proceso de sistema recorre hoteles activos y calcula cada uno por separado.
+        $hoteles = $pdo->query('SELECT h.Id FROM Hoteles h INNER JOIN PlanesHoteles p ON p.Id = h.PlanHotelId WHERE h.Activa = 1 AND p.Activo = 1')->fetchAll(PDO::FETCH_COLUMN);
+        $total = ['ok' => true, 'desde' => HEMP_FECHA_INICIO, 'hasta' => (new DateTimeImmutable('today'))->format('Y-m-d'),
+            'usuariosEvaluados' => 0, 'enviados' => 0, 'omitidos' => 0, 'errores' => 0, 'detalle' => []];
+        foreach ($hoteles as $hotel) {
+            xenios_tenant_select($pdo, (string) $hotel);
+            try { $actual = horas_extra_motivo_pendientes_enviar($pdo, $config); }
+            finally { unset($contexts[$pdo]); }
+            $total['ok'] = $total['ok'] && $actual['ok'];
+            foreach (['usuariosEvaluados', 'enviados', 'omitidos', 'errores'] as $key) $total[$key] += $actual[$key];
+            foreach ($actual['detalle'] as $row) $total['detalle'][] = ['hotelId' => $hotel] + $row;
+        }
+        return $total;
+    }
     $desde = new DateTimeImmutable(HEMP_FECHA_INICIO);
     $hasta = new DateTimeImmutable('today');
     error_log('[horas_extra_motivo] Iniciando calculo de pendientes desde ' . $desde->format('Y-m-d') . ' hasta ' . $hasta->format('Y-m-d'));
@@ -55,6 +71,8 @@ function horas_extra_motivo_pendientes_enviar(PDO $pdo, array $config): array
         $nombre = trim($usuario['nombre'] . ' ' . $usuario['apellido']);
         $html = horas_extra_motivo_mail_html($mailConfig, $nombre, $areas, $desde, $hasta);
         $texto = horas_extra_motivo_mail_texto($nombre, $areas, $desde, $hasta);
+        $mailConfig['hotel_mail_config'] = $config;
+        $mailConfig['hotel_mail_scope'] = ['Id' => $usuario['id'], 'EmpresaTenantId' => $usuario['empresaId'], 'SucursalId' => $usuario['sucursalId']];
         $envio = horas_extra_motivo_send_html_mail(
             $mailConfig,
             $usuario['mail'],
@@ -246,13 +264,14 @@ function hemp_fila_diaria(array $empleado, string $areaId, string $fecha): array
 function horas_extra_motivo_esta_tipificada(PDO $pdo, string $cacheKey, string $personalId, string $fecha): bool
 {
     static $cache = [];
+    $cacheKey = xenios_tenant_sql($pdo) . '|' . $cacheKey;
     if (array_key_exists($cacheKey, $cache)) {
         return $cache[$cacheKey];
     }
 
     $stmt = $pdo->prepare(
         'SELECT 1 FROM HoraExtraMotivoValidaciones
-         WHERE Estado = 1 AND PersonalId = :pid AND Fecha = :fecha
+         WHERE ' . xenios_tenant_sql($pdo) . ' AND Estado = 1 AND PersonalId = :pid AND Fecha = :fecha
          LIMIT 1'
     );
     $stmt->execute(['pid' => $personalId, 'fecha' => $fecha]);
@@ -265,13 +284,14 @@ function horas_extra_motivo_esta_tipificada(PDO $pdo, string $cacheKey, string $
 function horas_extra_motivo_usuarios_destinatarios(PDO $pdo): array
 {
     $stmt = $pdo->prepare(
-        'SELECT u.Id, u.Nombre, u.Apellido, u.Mail, a.Id AS AreaId, a.Nombre AS AreaNombre
+        'SELECT u.Id, u.Nombre, u.Apellido, u.Mail, u.EmpresaTenantId, u.DepositoId AS SucursalId, a.Id AS AreaId, a.Nombre AS AreaNombre
          FROM Usuarios u
          INNER JOIN RolUsuario ru ON ru.UsuariosId = u.Id
          INNER JOIN Roles r ON r.Id = ru.RolesId AND r.RolName = :rol
          INNER JOIN AreaUsuario au ON au.UsuariosId = u.Id
          INNER JOIN Area a ON a.Id = au.AreasId AND a.Estado = 1
-         WHERE u.Estado = 1 AND TRIM(COALESCE(u.Mail, "")) <> ""
+         WHERE ' . xenios_tenant_sql($pdo, 'u') . ' AND ' . xenios_tenant_sql($pdo, 'a') . '
+           AND u.Estado = 1 AND TRIM(COALESCE(u.Mail, "")) <> ""
          ORDER BY u.Apellido, u.Nombre, a.Nombre'
     );
     $stmt->execute(['rol' => HEMP_ROL]);
@@ -282,6 +302,8 @@ function horas_extra_motivo_usuarios_destinatarios(PDO $pdo): array
         if (!isset($usuarios[$id])) {
             $usuarios[$id] = [
                 'id' => $id,
+                'empresaId' => (string) $row['EmpresaTenantId'],
+                'sucursalId' => $row['SucursalId'],
                 'nombre' => (string) $row['Nombre'],
                 'apellido' => (string) $row['Apellido'],
                 'mail' => (string) $row['Mail'],
@@ -366,55 +388,9 @@ function horas_extra_motivo_send_html_mail(array $mailConfig, string $toMail, st
 {
     $from = (string) $mailConfig['mail_from'];
     $fromName = (string) $mailConfig['mail_from_name'];
-    $smtp = $mailConfig['smtp'] ?? [];
-    $host = trim((string) ($smtp['host'] ?? ''));
-    $port = (int) ($smtp['port'] ?? 587);
-    $username = trim((string) ($smtp['username'] ?? ''));
-    $password = (string) ($smtp['password'] ?? '');
-    $encryption = strtolower(trim((string) ($smtp['encryption'] ?? 'tls')));
-    $timeout = max(5, (int) ($smtp['timeout_seconds'] ?? 20));
-
-    if ($host === '' || $username === '' || $password === '') {
-        $error = 'Configuracion SMTP incompleta';
-        error_log('[horas_extra_motivo] ' . $error);
-        return ['ok' => false, 'error' => $error];
-    }
-
-    $socket = @stream_socket_client(($encryption === 'ssl' ? 'ssl://' : 'tcp://') . $host . ':' . $port, $errno, $errstr, $timeout, STREAM_CLIENT_CONNECT);
-    if (!is_resource($socket)) {
-        $error = 'No se pudo conectar al SMTP: ' . $errstr . ' (' . $errno . ')';
-        error_log('[horas_extra_motivo] ' . $error);
-        return ['ok' => false, 'error' => $error];
-    }
-    stream_set_timeout($socket, $timeout);
-
-    try {
-        password_reset_smtp_expect($socket, [220]);
-        password_reset_smtp_command($socket, 'EHLO ' . password_reset_smtp_hostname(), [250]);
-        if ($encryption === 'tls') {
-            password_reset_smtp_command($socket, 'STARTTLS', [220]);
-            if (!stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
-                throw new RuntimeException('No se pudo iniciar TLS con el SMTP');
-            }
-            password_reset_smtp_command($socket, 'EHLO ' . password_reset_smtp_hostname(), [250]);
-        }
-        password_reset_smtp_command($socket, 'AUTH LOGIN', [334]);
-        password_reset_smtp_command($socket, base64_encode($username), [334]);
-        password_reset_smtp_command($socket, base64_encode($password), [235]);
-        password_reset_smtp_command($socket, 'MAIL FROM:<' . $from . '>', [250]);
-        password_reset_smtp_command($socket, 'RCPT TO:<' . $toMail . '>', [250, 251]);
-        password_reset_smtp_command($socket, 'DATA', [354]);
-        password_reset_smtp_write($socket, horas_extra_motivo_mime_message($mailConfig, $toMail, $from, $fromName, $subject, $html, $text) . "\r\n.");
-        password_reset_smtp_expect($socket, [250]);
-        password_reset_smtp_command($socket, 'QUIT', [221]);
-        fclose($socket);
-        return ['ok' => true];
-    } catch (Throwable $e) {
-        $error = 'Error SMTP: ' . $e->getMessage();
-        error_log('[horas_extra_motivo] ' . $error);
-        @fclose($socket);
-        return ['ok' => false, 'error' => $error];
-    }
+    $html = str_replace('cid:logo-xenios-reset', 'cid:logo-xenios@app.xenios.com.ar', $html);
+    $ok = tenant_mail_send($mailConfig['hotel_mail_config'] ?? [], $mailConfig['hotel_mail_scope'] ?? [], [$toMail], $subject, $html);
+    return ['ok' => $ok, 'error' => $ok ? null : 'No se pudo enviar el correo con la cuenta del hotel.'];
 }
 
 function horas_extra_motivo_mime_message(array $mailConfig, string $toMail, string $from, string $fromName, string $subject, string $html, string $text): string

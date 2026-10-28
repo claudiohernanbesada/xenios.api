@@ -2,6 +2,8 @@
 import argparse
 import base64
 import json
+import io
+import zipfile
 import os
 from pathlib import Path
 import socket
@@ -85,10 +87,14 @@ with tempfile.TemporaryDirectory(prefix='xenios-api-check-') as temp:
     env['XENIOS_RATE_LIMIT_DIR'] = str(temp / 'rate')
     env['XENIOS_AVATAR_DIR'] = str(temp / 'avatars')
     env['XENIOS_PERSONAL_DIR'] = str(temp / 'personal')
+    env['XENIOS_ARTICULOS_DIR'] = str(temp / 'articulos')
+    env['XENIOS_AUTHSALIDA_DIR'] = str(temp / 'authSalida')
+    for repo, key_name in [('comprobantes', 'XENIOS_COMPROBANTES_DIR'), ('facturas', 'XENIOS_FACTURAS_DIR'), ('ordenPago', 'XENIOS_ORDEN_PAGO_DIR')]:
+        env[key_name] = str(temp / repo)
     env['PATH_LEGAJO_PERSONAL'] = str(temp / 'legajo')
     (temp / 'legajo').mkdir()
     (temp / 'php.ini').write_text(
-        f'display_errors=Off\nlog_errors=On\nextension_dir="{php.parent.as_posix()}/ext"\nextension=fileinfo\n',
+        f'display_errors=Off\nlog_errors=On\nextension_dir="{php.parent.as_posix()}/ext"\nextension=fileinfo\nextension=zip\n',
         encoding='ascii')
     with socket.socket() as sock:
         sock.bind(('127.0.0.1', 0))
@@ -151,7 +157,8 @@ Require all granted
         for path in ['/avatar/index.php', '/personal/index.php', '/authsalida/index.php',
                      '/actions/uploadAvatar/upload.php', '/actions/uploadImgPersonal/upload.php',
                      '/actions/uploadAuthSalida/upload.php', '/actions/alicuotas/update.php',
-                     '/actions/uploadLegajo/upload.php', '/legajo/index.php']:
+                     '/actions/uploadLegajo/upload.php', '/legajo/index.php',
+                     '/actions/uploadImgArticulos/upload.php', '/articulos/index.php']:
             expect(request(path)[0] == 401, 'protected ' + path)
         # Existing files must also pass through the controller.
         asset = root / 'personal' / 'security-check-existing.txt'
@@ -164,18 +171,93 @@ Require all granted
         expect(request('/actions/uploadAvatar/upload.php', {'X-Service-Key': 'b' * 64}, b'')[0] == 400, 'empty upload rejected')
         expect(request('/', {'Host': 'api.xenios.com.ar'})[0] == 403, 'public host requires HTTPS')
         expect(request('/actions/uploadAvatar/upload.php', {'X-Service-Key': 'a' * 64}, b'')[0] == 401, 'client secret cannot upload')
-        def upload(name, payload, endpoint='/actions/uploadAvatar/upload.php'):
+        def upload(name, payload, endpoint='/actions/uploadAvatar/upload.php', accept='*/*', extra_headers=None):
             boundary = 'XeniosTestBoundary'
             multipart = (f'--{boundary}\r\nContent-Disposition: form-data; name="archivo"; filename="{name}"\r\n'
                          'Content-Type: image/png\r\n\r\n').encode() + payload + f'\r\n--{boundary}--\r\n'.encode()
             return request(endpoint, {
                 'X-Service-Key': 'b' * 64,
+                'Accept': accept,
                 'Content-Type': 'multipart/form-data; boundary=' + boundary,
+                **(extra_headers or {}),
             }, multipart)
         expect(upload('fake.png', b'<?php echo "bad"; ?>')[0] == 400, 'fake PNG rejected')
         png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN3sAAAAASUVORK5CYII=')
         expect(upload('image.jpg', png)[0] == 400, 'content and extension mismatch rejected')
         expect(upload('image.png', png)[0] == 200, 'valid PNG accepted')
+        status, headers, body = upload('avatar.png', png, accept='application/json')
+        expect(status == 200 and headers['Content-Type'].startswith('application/json'), 'avatar JSON response')
+        avatar_name = json.loads(body)['archivo']
+        expect((temp / 'avatars' / avatar_name).read_bytes() == png, 'avatar confirmed filename matches stored bytes')
+        expect(request('/avatar/' + avatar_name, {'X-Service-Key': 'b' * 64})[2] == png, 'avatar private download round trip')
+        article_upload = '/actions/uploadImgArticulos/upload.php'
+        service = {'X-Service-Key': 'b' * 64}
+        expect(request(article_upload, service)[0] == 405, 'article upload POST only')
+        expect(upload('bad.png', b'<?php echo 1;?>', article_upload)[0] == 400, 'article fake PNG rejected')
+        expect(upload('bad.jpg', png, article_upload)[0] == 400, 'article extension mismatch rejected')
+        expect(upload('bad.php', png, article_upload)[0] == 400, 'article executable rejected')
+        expect(upload('large.png', png + b' ' * (512 * 1024), article_upload)[0] == 413, 'article size limit')
+        status, _, body = upload('article.png', png, article_upload)
+        expect(status == 201, 'article upload accepted')
+        article_name = json.loads(body)['archivo']
+        expect((temp / 'articulos' / article_name).read_bytes() == png, 'article stored in private repository')
+        expect(request('/articulos/' + article_name)[0] == 401, 'article private download requires key')
+        expect(request('/articulos/' + article_name, key)[0] == 401, 'article client key cannot download')
+        status, headers, body = request('/articulos/' + article_name, service)
+        expect(status == 200 and body == png, 'article exact download round trip')
+        expect(headers['Cache-Control'] == 'private, no-store', 'article private cache policy')
+        expect(request('/articulos/index.php?f=..%2f.env', service)[0] == 400, 'article traversal rejected')
+        expect(request('/articulos/' + '0' * 32 + '.png', service)[0] == 404, 'article missing image')
+        auth_upload = '/actions/uploadAuthSalida/upload.php'
+        pdf = b'%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n'
+        expect(request(auth_upload, service)[0] == 405, 'authorization upload POST only')
+        expect(upload('fake.pdf', b'<?php echo 1;?>', auth_upload)[0] == 400, 'authorization fake PDF rejected')
+        expect(upload('image.png', png, auth_upload)[0] == 400, 'authorization images are rejected')
+        expect(upload('document.jpg', pdf, auth_upload)[0] == 400, 'authorization extension mismatch')
+        status, headers, body = upload('signed.PDF', pdf, auth_upload, accept='application/json')
+        expect(status == 201 and headers['Content-Type'].startswith('application/json'), 'authorization JSON response')
+        auth_name = json.loads(body)['archivo']
+        expect((temp / 'authSalida' / auth_name).read_bytes() == pdf, 'authorization stored in private directory')
+        expect(request('/authsalida/' + auth_name)[0] == 401, 'authorization download requires service key')
+        expect(request('/authsalida/' + auth_name, key)[0] == 401, 'authorization client key denied')
+        status, headers, body = request('/authsalida/' + auth_name, service)
+        expect(status == 200 and body == pdf, 'authorization exact download round trip')
+        expect(headers['Cache-Control'] == 'private, no-store', 'authorization private response')
+        expect(headers['Content-Type'] == 'application/pdf', 'authorization PDF content type')
+        expect(request('/authsalida/index.php?f=..%2f.env', service)[0] == 400, 'authorization traversal rejected')
+        expect(request('/authsalida/' + '0' * 32 + '.pdf', service)[0] == 404, 'authorization missing file')
+        status, _, body = upload('legacy.pdf', pdf, auth_upload)
+        expect(status == 200 and body.startswith(b'Archivo recibido y guardado como: '), 'authorization legacy text compatibility')
+        expect(upload('large.pdf', pdf + b' ' * (9 * 1024 * 1024), auth_upload, accept='application/json')[0] == 201, 'authorization supports 9 MiB PDFs')
+        expect(upload('too-large.pdf', pdf + b' ' * (10 * 1024 * 1024), auth_upload)[0] == 413, 'authorization 10 MiB limit')
+        company = {'X-Xenios-Empresa-Id': '1' * 32}
+        other_company = {'X-Xenios-Empresa-Id': '2' * 32}
+        for repo, action in [('comprobantes', 'uploadComprobantes'), ('facturas', 'uploadFacturas'), ('ordenPago', 'uploadOrdenPagoRetenciones')]:
+            endpoint = '/actions/' + action + '/upload.php'
+            expect(request(endpoint)[0] == 401, repo + ' requires service key')
+            expect(request(endpoint, service, b'')[0] == 400, repo + ' requires company')
+            expect(request(endpoint, {**service, **company})[0] == 405, repo + ' upload POST only')
+            expect(upload('bad.php', pdf, endpoint, extra_headers=company)[0] == 400, repo + ' rejects executable extension')
+            expect(upload('bad.pdf', b'not a PDF', endpoint, extra_headers=company)[0] == 400, repo + ' rejects fake PDF')
+            status, _, body = upload('invoice.pdf', pdf, endpoint, extra_headers=company)
+            expect(status == 201, repo + ' PDF upload')
+            filename = json.loads(body)['archivo']
+            expect(len(filename) <= 50 and (temp / repo / filename).read_bytes() == pdf, repo + ' confirmed filename fits existing schema')
+            status, headers, body = request('/' + repo + '/' + filename, {**service, **company})
+            expect(status == 200 and body == pdf, repo + ' exact private round trip')
+            expect(headers['Cache-Control'] == 'private, no-store', repo + ' private cache')
+            expect(request('/' + repo + '/' + filename, {**service, **other_company})[0] == 404, repo + ' company isolation')
+            expect(request('/' + repo + '/index.php?f=..%2f.env', {**service, **company})[0] == 400, repo + ' traversal rejected')
+            expect(upload('data.xml', b'<?xml version="1.0"?><invoice><total>123</total></invoice>', endpoint, extra_headers=company)[0] == 201, repo + ' XML document')
+            docx = io.BytesIO()
+            with zipfile.ZipFile(docx, 'w') as archive:
+                archive.writestr('[Content_Types].xml', '<Types/>')
+                archive.writestr('word/document.xml', '<document/>')
+            status, _, body = upload('document.docx', docx.getvalue(), endpoint, extra_headers=company)
+            expect(status == 201 and len(json.loads(body)['archivo']) == 50, repo + ' DOCX document and schema length')
+        endpoint = '/actions/uploadComprobantes/upload.php'
+        expect(upload('large.pdf', pdf + b' ' * (24 * 1024 * 1024), endpoint, extra_headers=company)[0] == 201, 'financial documents support 24 MiB')
+        expect(upload('oversized.pdf', pdf + b' ' * (25 * 1024 * 1024), endpoint, extra_headers=company)[0] == 413, 'financial documents enforce 25 MiB')
         legajo_upload = '/actions/uploadLegajo/upload.php'
         service = {'X-Service-Key': 'b' * 64}
         expect(request(legajo_upload, service)[0] == 405, 'legajo upload POST only')

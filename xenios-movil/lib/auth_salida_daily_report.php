@@ -22,10 +22,11 @@ function auth_salida_daily_report_config(array $config): array
 function auth_salida_daily_report_recipients(PDO $pdo): array
 {
     $stmt = $pdo->prepare(
-        'SELECT DISTINCT u.Mail, u.Nombre, u.Apellido
+        'SELECT DISTINCT u.Id, u.Mail, u.Nombre, u.Apellido, u.EmpresaTenantId, u.DepositoId AS SucursalId
          FROM Usuarios u
          INNER JOIN RolUsuario ru ON ru.UsuariosId = u.Id
          INNER JOIN Roles r ON r.Id = ru.RolesId
+         INNER JOIN Hoteles h ON h.Id = u.EmpresaTenantId AND h.Activa = 1
          WHERE u.Estado = 1
            AND UPPER(TRIM(r.RolName)) = :rol
            AND u.Mail IS NOT NULL
@@ -43,6 +44,9 @@ function auth_salida_daily_report_recipients(PDO $pdo): array
 
         $nombre = trim((string) $row['Nombre'] . ' ' . (string) $row['Apellido']);
         $recipients[$mail] = [
+            'Id' => (string) $row['Id'],
+            'EmpresaTenantId' => (string) $row['EmpresaTenantId'],
+            'SucursalId' => $row['SucursalId'],
             'mail' => $mail,
             'nombre' => $nombre !== '' ? $nombre : $mail,
         ];
@@ -52,7 +56,7 @@ function auth_salida_daily_report_recipients(PDO $pdo): array
 }
 
 /** @return list<array<string, string>> */
-function auth_salida_daily_report_rows(PDO $pdo, DateTimeImmutable $date): array
+function auth_salida_daily_report_rows(PDO $pdo, DateTimeImmutable $date, string $hotelId): array
 {
     $fecha = $date->format('Y-m-d');
     $stmt = $pdo->prepare(
@@ -62,13 +66,13 @@ function auth_salida_daily_report_rows(PDO $pdo, DateTimeImmutable $date): array
                 m.MotivoAuth, a.MotivoDetalle
          FROM AuthSalida a
          INNER JOIN Personal p ON p.Id = a.PersonalId
-         INNER JOIN AuthSalidaMotivos m ON m.Id = a.MotivoId
-         WHERE a.Estado = 1
+         INNER JOIN AuthSalidaMotivos m ON m.Id = a.MotivoId AND m.EmpresaTenantId = a.EmpresaTenantId
+         WHERE a.Estado = 1 AND a.EmpresaTenantId = :hotel AND p.EmpresaTenantId = a.EmpresaTenantId
            AND DATE(a.Fecha) <= :fecha
            AND DATE(a.FechaRegreso) >= :fecha
          ORDER BY a.Fecha, a.HoraSalida, p.Apellido, p.Nombre'
     );
-    $stmt->execute(['fecha' => $fecha]);
+    $stmt->execute(['fecha' => $fecha, 'hotel' => $hotelId]);
 
     $rows = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
@@ -90,7 +94,7 @@ function auth_salida_daily_report_rows(PDO $pdo, DateTimeImmutable $date): array
 }
 
 /** @return list<array<string, string>> */
-function auth_salida_daily_report_license_rows(PDO $pdo, DateTimeImmutable $date): array
+function auth_salida_daily_report_license_rows(PDO $pdo, DateTimeImmutable $date, string $hotelId): array
 {
     $fecha = $date->format('Y-m-d');
     $stmt = $pdo->prepare(
@@ -98,13 +102,13 @@ function auth_salida_daily_report_license_rows(PDO $pdo, DateTimeImmutable $date
                 m.Motivo, pl.Comentarios, pl.Desde, pl.Hasta
          FROM PersonalLicencias pl
          INNER JOIN Personal p ON p.Id = pl.PersonalId
-         INNER JOIN PersonalLicenciasMotivo m ON m.Id = pl.PersonalLicenciasMotivoId
-         WHERE pl.Estado = 1
+         INNER JOIN PersonalLicenciasMotivo m ON m.Id = pl.PersonalLicenciasMotivoId AND m.EmpresaTenantId = pl.EmpresaTenantId
+         WHERE pl.Estado = 1 AND pl.EmpresaTenantId = :hotel AND p.EmpresaTenantId = pl.EmpresaTenantId
            AND pl.Desde <= :fecha
            AND pl.Hasta >= :fecha
          ORDER BY pl.Desde, p.Apellido, p.Nombre'
     );
-    $stmt->execute(['fecha' => $fecha]);
+    $stmt->execute(['fecha' => $fecha, 'hotel' => $hotelId]);
 
     $rows = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
@@ -266,58 +270,25 @@ function auth_salida_daily_report_html_body(array $authRows, array $licenseRows,
 
 function auth_salida_daily_report_send(PDO $pdo, array $config, DateTimeImmutable $date): array
 {
-    $reportConfig = auth_salida_daily_report_config($config);
     $recipients = auth_salida_daily_report_recipients($pdo);
-    $rows = auth_salida_daily_report_rows($pdo, $date);
-    $licenseRows = auth_salida_daily_report_license_rows($pdo, $date);
-
-    if ($recipients === []) {
-        return [
-            'ok' => true,
-            'sent' => 0,
-            'recipients' => [],
-            'rows' => count($rows),
-            'licenseRows' => count($licenseRows),
-            'message' => 'No hay usuarios activos con rol ' . AUTH_SALIDA_DAILY_REPORT_ROLE,
-        ];
-    }
-
-    $subject = auth_salida_daily_report_subject($date);
-    $textBody = auth_salida_daily_report_text_body($rows, $licenseRows);
-    $logoPath = trim((string) ($reportConfig['mail_logo_path'] ?? ''));
-    $htmlBody = auth_salida_daily_report_html_body(
-        $rows,
-        $licenseRows,
-        $logoPath !== '' && is_file($logoPath) && is_readable($logoPath) ? 'logo-xenios-auth-salida' : null
-    );
+    $reports = [];
     $sent = 0;
     $failed = [];
-
     foreach ($recipients as $recipient) {
-        $ok = auth_salida_daily_report_send_smtp(
-            $reportConfig,
-            $recipient['mail'],
-            (string) $reportConfig['mail_from'],
-            (string) $reportConfig['mail_from_name'],
-            $subject,
-            $textBody,
-            $htmlBody
-        );
-        if ($ok) {
-            $sent++;
-        } else {
-            $failed[] = $recipient['mail'];
+        $hotel = $recipient['EmpresaTenantId'];
+        if (!isset($reports[$hotel])) {
+            $rows = auth_salida_daily_report_rows($pdo, $date, $hotel);
+            $licenses = auth_salida_daily_report_license_rows($pdo, $date, $hotel);
+            $reports[$hotel] = ['rows' => $rows, 'licenses' => $licenses,
+                'html' => auth_salida_daily_report_html_body($rows, $licenses, null)];
         }
+        $ok = tenant_mail_send($config, $recipient, [$recipient['mail']],
+            auth_salida_daily_report_subject($date), $reports[$hotel]['html']);
+        if ($ok) $sent++; else $failed[] = $recipient['mail'];
     }
-
-    return [
-        'ok' => $failed === [],
-        'sent' => $sent,
-        'recipients' => array_column($recipients, 'mail'),
-        'rows' => count($rows),
-        'licenseRows' => count($licenseRows),
-        'failed' => $failed,
-    ];
+    return ['ok' => $failed === [], 'sent' => $sent, 'recipients' => array_column($recipients, 'mail'),
+        'rows' => array_sum(array_map(static fn($report) => count($report['rows']), $reports)),
+        'licenseRows' => array_sum(array_map(static fn($report) => count($report['licenses']), $reports)), 'failed' => $failed];
 }
 
 function auth_salida_daily_report_send_smtp(

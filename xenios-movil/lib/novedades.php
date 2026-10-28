@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/push_native.php';
+require_once __DIR__ . '/tenant.php';
 
 function novedades_new_id(): string
 {
@@ -56,7 +57,7 @@ function novedades_resolve_destinatarios(PDO $pdo, ?array $usuarioIds): array
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
         $stmt = $pdo->prepare(
             "SELECT u.Id FROM Usuarios u
-             WHERE u.Estado = 1 AND u.Id IN ($placeholders)"
+             WHERE " . xenios_tenant_sql($pdo, 'u') . " AND u.Estado = 1 AND u.Id IN ($placeholders)"
         );
         $stmt->execute($ids);
 
@@ -68,7 +69,7 @@ function novedades_resolve_destinatarios(PDO $pdo, ?array $usuarioIds): array
          FROM Usuarios u
          INNER JOIN RolUsuario ru ON ru.UsuariosId = u.Id
          INNER JOIN Roles r ON r.Id = ru.RolesId
-         WHERE u.Estado = 1 AND r.RolName = \'EMPLEADO\''
+         WHERE ' . xenios_tenant_sql($pdo, 'u') . ' AND u.Estado = 1 AND r.RolName = \'EMPLEADO\''
     );
 
     return $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
@@ -77,7 +78,7 @@ function novedades_resolve_destinatarios(PDO $pdo, ?array $usuarioIds): array
 function novedades_usuario_activo(PDO $pdo, string $usuarioId): ?array
 {
     $stmt = $pdo->prepare(
-        'SELECT Id, Nombre, Apellido, Mail FROM Usuarios WHERE Id = :id AND Estado = 1 LIMIT 1'
+        'SELECT Id, Nombre, Apellido, Mail, EmpresaTenantId FROM Usuarios WHERE Id = :id AND Estado = 1 LIMIT 1'
     );
     $stmt->execute(['id' => $usuarioId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -133,14 +134,25 @@ function novedades_crear_y_enviar(
     string $enviadoPorUsuarioId,
     array $usuarioIds
 ): array {
+    $sender = $pdo->prepare('SELECT EmpresaTenantId FROM Usuarios WHERE Id = ? AND Estado = 1');
+    $sender->execute([$enviadoPorUsuarioId]);
+    $empresa = $sender->fetchColumn();
+    if (!is_string($empresa)) throw new RuntimeException('Remitente no disponible.');
+    xenios_tenant_select($pdo, $empresa);
+    $usuarioIds = array_values(array_unique($usuarioIds));
+    if ($usuarioIds === []) throw new RuntimeException('Debe seleccionar destinatarios.');
+    $marks = implode(',', array_fill(0, count($usuarioIds), '?'));
+    $valid = $pdo->prepare('SELECT COUNT(*) FROM Usuarios WHERE Estado = 1 AND ' . xenios_tenant_sql($pdo) . " AND Id IN ($marks)");
+    $valid->execute($usuarioIds);
+    if ((int) $valid->fetchColumn() !== count($usuarioIds)) throw new RuntimeException('Los destinatarios deben pertenecer al hotel del remitente.');
     $novedadId = novedades_new_id();
     $ahora = novedades_now_string();
 
     $pdo->beginTransaction();
     try {
         $ins = $pdo->prepare(
-            'INSERT INTO MovilNovedad (Id, Titulo, Cuerpo, EnviadoPorUsuarioId, CreadoEn)
-             VALUES (:id, :titulo, :cuerpo, :from, :creado)'
+            'INSERT INTO MovilNovedad (Id, Titulo, Cuerpo, EnviadoPorUsuarioId, CreadoEn, EmpresaTenantId)
+             VALUES (:id, :titulo, :cuerpo, :from, :creado, :empresa)'
         );
         $ins->execute([
             'id' => $novedadId,
@@ -148,13 +160,14 @@ function novedades_crear_y_enviar(
             'cuerpo' => $cuerpo,
             'from' => $enviadoPorUsuarioId,
             'creado' => $ahora,
+            'empresa' => $empresa,
         ]);
 
         $link = $pdo->prepare(
-            'INSERT INTO MovilNovedadUsuario (NovedadId, UsuarioId, LeidaEn) VALUES (:nid, :uid, NULL)'
+            'INSERT INTO MovilNovedadUsuario (NovedadId, UsuarioId, LeidaEn, EmpresaTenantId) VALUES (:nid, :uid, NULL, :empresa)'
         );
         foreach ($usuarioIds as $uid) {
-            $link->execute(['nid' => $novedadId, 'uid' => $uid]);
+            $link->execute(['nid' => $novedadId, 'uid' => $uid, 'empresa' => $empresa]);
         }
 
         $pdo->commit();

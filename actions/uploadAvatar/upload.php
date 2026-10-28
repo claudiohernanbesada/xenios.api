@@ -7,6 +7,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') { http_response_code(405); ex
 try {
     $name = save_uploaded_foto($_FILES['archivo'] ?? [], 'avatar_usuario');
     if ($name === null) { http_response_code(400); exit('Imagen inválida.'); }
+    if (str_contains(strtolower((string) ($_SERVER['HTTP_ACCEPT'] ?? '')), 'application/json')) {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['archivo' => $name], JSON_UNESCAPED_SLASHES);
+        exit;
+    }
     echo 'Archivo recibido y guardado como: ' . $name;
 } catch (Throwable $e) {
     error_log('[xenios-upload] ' . $e->getMessage());

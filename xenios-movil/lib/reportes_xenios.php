@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/asistencia_calendario.php';
 require_once __DIR__ . '/horas_trabajadas_empleado.php';
+require_once __DIR__ . '/tenant.php';
 
 function reportes_xenios_parse_fecha(string $valor): ?DateTimeImmutable
 {
@@ -37,6 +38,7 @@ function reportes_xenios_empleados(
     array $areaIds = []
 ): array {
     $where = [
+        xenios_tenant_sql($pdo, 'p'),
         'p.Estado IN (1, 2)',
         '(p.FechaBaja IS NULL OR p.FechaBaja >= :fechaInicio)',
         'p.FechaAlta < :hastaExclusivo',
@@ -84,7 +86,7 @@ function reportes_xenios_feriados(PDO $pdo, DateTimeImmutable $desde, DateTimeIm
 {
     $stmt = $pdo->prepare(
         'SELECT Fecha, Descripcion FROM PersonalFeriados
-         WHERE Estado = 1 AND Fecha >= :d AND Fecha <= :h'
+         WHERE ' . xenios_tenant_sql($pdo) . ' AND Estado = 1 AND Fecha >= :d AND Fecha <= :h'
     );
     $stmt->execute(['d' => $desde->format('Y-m-d'), 'h' => $hasta->format('Y-m-d')]);
 
@@ -103,7 +105,7 @@ function reportes_xenios_razones_ausencia(PDO $pdo, string $personalId, DateTime
         'SELECT pl.Desde, pl.Hasta, COALESCE(m.Codigo, "") AS Codigo, COALESCE(m.Motivo, "") AS Motivo
          FROM PersonalLicencias pl
          LEFT JOIN PersonalLicenciasMotivo m ON m.Id = pl.PersonalLicenciasMotivoId
-         WHERE pl.Estado = 1 AND pl.PersonalId = :pid AND pl.Desde <= :h AND pl.Hasta >= :d'
+         WHERE ' . xenios_tenant_sql($pdo, 'pl') . ' AND pl.Estado = 1 AND pl.PersonalId = :pid AND pl.Desde <= :h AND pl.Hasta >= :d'
     );
     $stmt->execute(['pid' => $personalId, 'd' => $desde->format('Y-m-d'), 'h' => $hasta->format('Y-m-d')]);
 
@@ -185,7 +187,7 @@ function reportes_xenios_fichadas_detalle(PDO $pdo, string $legajo, DateTimeImmu
         "SELECT f.Fecha, f.EsCargaManual, COALESCE(m.Motivo, '') AS MotivoManual
          FROM FichadasGlobal f
          LEFT JOIN FichadaGlobalManualMotivos m ON m.Id = f.MotivoId
-         WHERE f.Estado = 1 AND f.Fecha >= ? AND f.Fecha <= ? AND f.Legajo IN ($placeholders)
+         WHERE " . xenios_tenant_sql($pdo, 'f') . " AND f.Estado = 1 AND f.Fecha >= ? AND f.Fecha <= ? AND f.Legajo IN ($placeholders)
          ORDER BY f.Fecha ASC"
     );
     $stmt->execute(array_merge([$desde->modify('-1 day')->format('Y-m-d 00:00:00'), $hasta->modify('+1 day')->format('Y-m-d 23:59:59')], $claves));
@@ -193,7 +195,7 @@ function reportes_xenios_fichadas_detalle(PDO $pdo, string $legajo, DateTimeImmu
         'Fecha' => new DateTimeImmutable((string) $r['Fecha']),
         'EsCargaManual' => (bool) $r['EsCargaManual'], 'MotivoManual' => (string) ($r['MotivoManual'] ?? ''),
     ], $stmt->fetchAll(PDO::FETCH_ASSOC));
-    $personal = $pdo->prepare('SELECT HorarioIngreso, HorarioSalida FROM Personal WHERE Legajo = ? AND Estado IN (1,2) LIMIT 1');
+    $personal = $pdo->prepare('SELECT HorarioIngreso, HorarioSalida FROM Personal WHERE ' . xenios_tenant_sql($pdo) . ' AND Legajo = ? AND Estado IN (1,2) LIMIT 1');
     $personal->execute([$legajoInt]);
     $horario = $personal->fetch(PDO::FETCH_ASSOC) ?: [];
     $porDia = [];
@@ -223,7 +225,7 @@ function reportes_xenios_auth_detalle(PDO $pdo, string $personalId, DateTimeImmu
                 COALESCE(m.MotivoAuth, "") AS Motivo
          FROM AuthSalida a
          LEFT JOIN AuthSalidaMotivos m ON m.Id = a.MotivoId
-         WHERE a.Estado = 1 AND a.PersonalId = :pid AND a.Fecha <= :h AND a.FechaRegreso >= :d
+         WHERE ' . xenios_tenant_sql($pdo, 'a') . ' AND a.Estado = 1 AND a.PersonalId = :pid AND a.Fecha <= :h AND a.FechaRegreso >= :d
          ORDER BY a.Fecha ASC, a.HoraSalida ASC'
     );
     $stmt->execute(['pid' => $personalId, 'd' => $desde->format('Y-m-d'), 'h' => $hasta->format('Y-m-d')]);

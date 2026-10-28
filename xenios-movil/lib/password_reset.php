@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/tenant_mail.php';
 
 function password_reset_config(array $config): array
 {
@@ -36,8 +37,9 @@ function password_reset_config(array $config): array
 function password_reset_find_user_by_mail(PDO $pdo, string $mail): ?array
 {
     $stmt = $pdo->prepare(
-        'SELECT Id, Nombre, Apellido, Mail FROM Usuarios
-         WHERE LOWER(TRIM(Mail)) = :mail AND Estado = 1 LIMIT 1'
+        'SELECT u.Id, u.Nombre, u.Apellido, u.Mail, u.EmpresaTenantId, u.DepositoId AS SucursalId FROM Usuarios u
+         INNER JOIN Hoteles h ON h.Id = u.EmpresaTenantId AND h.Activa = 1
+         WHERE LOWER(TRIM(u.Mail)) = :mail AND u.Estado = 1 LIMIT 1'
     );
     $stmt->execute(['mail' => strtolower(trim($mail))]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -86,19 +88,14 @@ function password_reset_build_link(array $prConfig, string $plainToken): string
 
 function password_reset_send_mail(array $prConfig, string $toMail, string $nombre, string $link): bool
 {
-    $from = (string) $prConfig['mail_from'];
-    $fromName = (string) $prConfig['mail_from_name'];
-    $subject = 'Restablecer contrasena - XENIOS';
-    $body =
-        "Hola {$nombre},\n\n"
-        . "Recibimos una solicitud para restablecer la contrasena de tu cuenta en la App XENIOS Movil.\n\n"
-        . "Abri el siguiente enlace (valido por 30 minutos):\n{$link}\n\n"
-        . "Si no solicitaste este cambio, ignora este correo.\n\n"
-        . "Coordialmente,\n"
-        . "Metalúrgica R.A.E.I S.A\n"
-        . "Equipo de Desarrollo XENIOS";
-
-    return password_reset_send_smtp($prConfig, $toMail, $from, $fromName, $subject, $body);
+    $scope = $prConfig['hotel_mail_scope'] ?? [];
+    $config = $prConfig['hotel_mail_config'] ?? [];
+    $safeName = htmlspecialchars($nombre, ENT_QUOTES, 'UTF-8');
+    $safeLink = htmlspecialchars($link, ENT_QUOTES, 'UTF-8');
+    $body = '<p>Hola ' . $safeName . '.</p><p>Recibimos una solicitud para recuperar tu contraseña en Xenios.</p>'
+        . '<p><a href="' . $safeLink . '">Restablecer contraseña</a></p>'
+        . '<p>Si no solicitaste este cambio, ignorá el correo.</p>';
+    return tenant_mail_send($config, $scope, [$toMail], 'Recuperación de contraseña · Xenios', $body);
 }
 
 function password_reset_send_smtp(
@@ -328,14 +325,12 @@ function password_reset_request(PDO $pdo, array $config, string $correo): array
         $plain = password_reset_create_token($pdo, (string) $user['Id'], (int) $pr['ttl_seconds']);
         $link = password_reset_build_link($pr, $plain);
         $nombre = trim((string) $user['Nombre']);
+        $pr['hotel_mail_scope'] = $user;
+        $pr['hotel_mail_config'] = $config;
         $sent = password_reset_send_mail($pr, (string) $user['Mail'], $nombre !== '' ? $nombre : 'Usuario', $link);
         if (!$sent) {
             password_reset_clear_token($pdo, (string) $user['Id']);
-            error_log('[password_reset] No se pudo enviar el correo de recuperacion a ' . (string) $user['Mail']);
-            return [
-                'ok' => false,
-                'message' => 'En estos momentos no es posible enviar la solicitud de recuperación. Intente en unos minutos o comuníquese con la Gerencia de IT.',
-            ];
+            error_log('[password_reset] No se pudo enviar el correo de recuperación.');
         }
     }
 

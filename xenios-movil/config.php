@@ -123,6 +123,7 @@ return [
     'cors_origins' => array_filter(array_map('trim', explode(',', xenios_movil_env_value('XENIOS_CORS_ORIGINS', $xeniosMovilEnvPaths, 'https://app.xenios.com.ar,https://xenios.com.ar,https://www.xenios.com.ar')))),
     // Clave REST; las operaciones privilegiadas agregan X-Service-Key.
     'api_key' => xenios_api_token_esperado(),
+    'hotel_mail' => ['service_key' => xenios_movil_env_value('XENIOS_SERVICE_TOKEN', $xeniosMovilEnvPaths)],
     'web_bridge_secret' => xenios_movil_env_value('XENIOS_WEB_BRIDGE_SECRET', $xeniosMovilEnvPaths),
     'xenios_web_base_url' => rtrim(xenios_movil_env_value('XENIOS_WEB_BASE_URL', $xeniosMovilEnvPaths, 'https://app.xenios.com.ar'), '/'),
     'app_version' => [

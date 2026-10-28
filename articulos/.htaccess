@@ -1,0 +1,4 @@
+Options -Indexes -MultiViews
+RewriteEngine On
+RewriteRule ^index\.php$ - [L]
+RewriteRule ^(.+)$ index.php?f=$1 [END,QSA]

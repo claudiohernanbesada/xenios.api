@@ -12,6 +12,26 @@ const XENIOS_AVATAR_MAX_BYTES = 100 * 1024;
 require_once dirname(__DIR__, 2) . '/_inc/rutas_archivos.php';
 require_once dirname(__DIR__, 2) . '/_inc/stream_archivo.php';
 
+// Solo elimina avatares privados que ya no están asociados a ningún usuario.
+function delete_unused_avatar(PDO $pdo, ?string $name): bool
+{
+    if ($name === null || $name === '' || $name === 'no-image.png') { return true; }
+    if (!preg_match('/\A[a-zA-Z0-9_-]{1,100}\.(?:jpg|jpeg|png)\z/i', $name)) {
+        throw new InvalidArgumentException('Nombre de avatar inválido.');
+    }
+    $query = $pdo->prepare('SELECT 1 FROM Usuarios WHERE ImgPerfil = ? LIMIT 1');
+    $query->execute([$name]);
+    if ($query->fetchColumn() !== false) { return false; }
+    $directory = realpath(xenios_ruta_fisica_escritura(XENIOS_AVATAR_REPO));
+    if ($directory === false) { return true; }
+    $path = $directory . DIRECTORY_SEPARATOR . $name;
+    if (is_link($path)) { throw new InvalidArgumentException('Avatar fuera del repositorio.'); }
+    if (!file_exists($path)) { return true; }
+    if (!is_file($path) || realpath($path) !== $path) { throw new InvalidArgumentException('Avatar inválido.'); }
+    if (!unlink($path)) { throw new RuntimeException('No se pudo eliminar el avatar anterior.'); }
+    return true;
+}
+
 // Borra el archivo viejo del disco si no es el placeholder no-image.png
 function delete_archivo_fisico(string $claveRepositorio, ?string $nombreArchivo): void
 {

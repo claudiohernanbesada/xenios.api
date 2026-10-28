@@ -17,6 +17,10 @@ API PHP de Xenios para aplicación móvil, web, asistencia, seguridad y logísti
 6. [Herramientas y tareas programadas](docs/HERRAMIENTAS.md).
 7. [Inventario de funciones del código](docs/INVENTARIO.md).
 8. [Carga y descarga de documentos del legajo](docs/LEGAJO.md).
+9. [Gestión centralizada de avatares](docs/AVATAR.md).
+10. [Gestión centralizada de imágenes de artículos](docs/ARTICULOS.md).
+11. [Archivos de autorización de salida](docs/AUTH_SALIDA.md).
+12. [Documentos administrativos](docs/DOCUMENTOS_ADMINISTRACION.md).
 
 ## Estado
 
